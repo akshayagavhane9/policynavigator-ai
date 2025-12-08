@@ -1,0 +1,7 @@
+Summarize the conversation history below into a compact form.
+Keep the meaning, preserve user intent, and drop unnecessary details.
+
+Conversation:
+{{history}}
+
+Return the short summary only.

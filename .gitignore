@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.env
+*.DS_Store
+venv/
+.env
+.env.*
+
+# Streamlit
+.streamlit
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Vectorstore
+data/kb_processed/*
+!data/kb_processed/.gitkeep
+
+# Raw Docs
+data/kb_raw/*
+!data/kb_raw/.gitkeep
+
+# Synthetic Data
+data/synthetic_eval/*
+!data/synthetic_eval/.gitkeep

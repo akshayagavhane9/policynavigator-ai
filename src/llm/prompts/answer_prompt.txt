@@ -1,0 +1,20 @@
+You are provided with:
+1. User Question:
+{{question}}
+
+2. Retrieved Context:
+{{context}}
+
+Using ONLY the retrieved context, generate the final grounded answer.
+Follow these rules:
+- Extract the exact rule, policy, or guideline from context.
+- Never add information that is not explicitly found.
+- Cite using this format: "DocumentName - Section X"
+- Provide a confidence estimate based on content match strength.
+
+Return final answer in CLEAN JSON only:
+{
+  "answer": "...",
+  "citations": ["..."],
+  "confidence": "..."
+}
