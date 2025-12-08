@@ -1,0 +1,7 @@
+Rewrite the following user question into a more search-optimized query.
+Make it concise, remove filler words, and keep ONLY important meaning.
+
+Original question:
+{{question}}
+
+Return only the rewritten query, nothing else.

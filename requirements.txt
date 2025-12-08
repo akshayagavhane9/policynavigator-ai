@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+anthropic
+openai
+python-dotenv
+langchain
+llama-index
+pypdf
+python-docx
+nltk
+pandas
+numpy
+chromadb
+tqdm
+streamlit
+scikit-learn
+sentence-transformers
