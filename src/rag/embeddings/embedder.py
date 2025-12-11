@@ -1,25 +1,42 @@
+import os
 from typing import List
 
-from sentence_transformers import SentenceTransformer
+from openai import OpenAI
 
 
 class Embedder:
     """
-    Wrapper around a SentenceTransformer model for embedding docs & queries.
+    Thin wrapper around OpenAI embeddings.
+
+    Usage:
+        embedder = Embedder()
+        vectors = embedder.embed(["hello world", "another text"])
     """
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
-        self.model = SentenceTransformer(model_name)
+    def __init__(self, model: str | None = None) -> None:
+        # You can override via env var if you want
+        self.model = model or os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """
-        Embed multiple documents. Returns list of embedding vectors (lists of floats).
-        """
-        embeddings = self.model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
-        return embeddings.tolist()
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "OPENAI_API_KEY is not set. Please export it before running the app."
+            )
 
-    def embed_query(self, text: str) -> List[float]:
+        self.client = OpenAI(api_key=api_key)
+
+    def embed(self, texts: List[str]) -> List[List[float]]:
         """
-        Embed a single query.
+        Return a list of embedding vectors, one per input text.
         """
-        return self.embed_documents([text])[0]
+        if not texts:
+            return []
+
+        # OpenAI embeddings API
+        response = self.client.embeddings.create(
+            model=self.model,
+            input=texts,
+        )
+
+        # response.data is a list of objects with a `.embedding` attribute
+        return [d.embedding for d in response.data]
