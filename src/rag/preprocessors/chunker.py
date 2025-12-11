@@ -1,58 +1,39 @@
-from typing import List, Dict, Any
+from typing import List, Union
 
 
 def chunk_text(
-    text: str,
-    max_chars: int = 800,
+    text: Union[str, list],
+    chunk_size: int = 800,
     overlap: int = 200,
-    doc_id: str = "",
-    base_metadata: Dict[str, Any] | None = None,
-) -> List[Dict[str, Any]]:
+) -> List[str]:
     """
-    Split text into overlapping chunks using a fixed step.
+    Simple word-based chunking.
 
-    The step size is (max_chars - overlap).
-    For example: max_chars=800, overlap=200 → step=600.
-
-    This implementation avoids infinite loops even when the text is shorter
-    than max_chars.
+    - Accepts a string or list of strings.
+    - Returns a list of chunk strings.
     """
-    if base_metadata is None:
-        base_metadata = {}
+    # If it’s a list, join into one string
+    if isinstance(text, list):
+        text = " ".join(str(t) for t in text)
 
-    chunks: List[Dict[str, Any]] = []
-    if not text:
+    if not isinstance(text, str):
+        text = str(text)
+
+    words = text.split()
+    chunks: List[str] = []
+
+    if not words:
         return chunks
 
-    n = len(text)
+    start = 0
+    while start < len(words):
+        end = start + chunk_size
+        chunk = " ".join(words[start:end])
+        chunks.append(chunk)
 
-    # Ensure sensible parameters
-    if max_chars <= 0:
-        raise ValueError("max_chars must be > 0")
-    if overlap < 0:
-        raise ValueError("overlap must be >= 0")
-    if overlap >= max_chars:
-        # No progress would be made → infinite loop risk
-        overlap = max_chars // 4  # fallback to something safe
-
-    step = max_chars - overlap
-
-    chunk_index = 0
-    for start in range(0, n, step):
-        end = min(start + max_chars, n)
-        chunk_str = text[start:end].strip()
-        if not chunk_str:
-            continue
-
-        chunk_metadata = {
-            **base_metadata,
-            "chunk_index": chunk_index,
-        }
-        chunks.append({
-            "id": f"{doc_id}_chunk_{chunk_index}",
-            "text": chunk_str,
-            "metadata": chunk_metadata,
-        })
-        chunk_index += 1
+        # Move forward with overlap
+        start = end - overlap
+        if start < 0:
+            start = 0
 
     return chunks

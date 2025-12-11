@@ -1,79 +1,141 @@
 import os
-from typing import List, Dict, Any
+import pickle
+from typing import Any, Dict, List, Optional
 
-import chromadb
-from chromadb.config import Settings
-
-
-# Ensure the directory exists
-VECTOR_DB_DIR = os.path.join("data", "kb_processed", "chroma_db")
-os.makedirs(VECTOR_DB_DIR, exist_ok=True)
-
-_client = chromadb.PersistentClient(
-    path=VECTOR_DB_DIR,
-    settings=Settings(allow_reset=True),
-)
+import numpy as np
 
 
-def get_collection(name: str = "policies"):
+class VectorDB:
     """
-    Get or create a Chroma collection.
+    Very simple file-based vector store.
+
+    - Stores texts, metadatas and embeddings in a pickle file.
+    - Uses the provided Embedder to create embeddings.
+    - Provides similarity_search(query, embedder, k) used by main.py.
     """
-    return _client.get_or_create_collection(name=name)
 
+    def __init__(self, persist_path: str = "data/vectorstore") -> None:
+        self.persist_path = persist_path
+        self.index_file = os.path.join(persist_path, "index.pkl")
 
-def upsert_chunks(
-    chunks: List[Dict[str, Any]],
-    embeddings: List[List[float]],
-    collection_name: str = "policies",
-) -> None:
-    """
-    Upsert chunk docs + embeddings into the vector store.
-    """
-    if not chunks:
-        return
+        self.texts: List[str] = []
+        self.metadatas: List[Dict[str, Any]] = []
+        self.embeddings: Optional[np.ndarray] = None
 
-    if len(chunks) != len(embeddings):
-        raise ValueError("chunks and embeddings lengths do not match")
+        self._loaded = False
 
-    collection = get_collection(collection_name)
+    # ------------------------------------------------------------------ #
+    # Persistence helpers
+    # ------------------------------------------------------------------ #
 
-    ids = [chunk["id"] for chunk in chunks]
-    documents = [chunk["text"] for chunk in chunks]
-    metadatas = [chunk["metadata"] for chunk in chunks]
+    def load(self) -> None:
+        """Load existing index from disk (if it exists)."""
+        if self._loaded:
+            return
 
-    collection.upsert(
-        ids=ids,
-        documents=documents,
-        metadatas=metadatas,
-        embeddings=embeddings,
-    )
+        if os.path.exists(self.index_file):
+            with open(self.index_file, "rb") as f:
+                data = pickle.load(f)
 
+            self.texts = data.get("texts", [])
+            self.metadatas = data.get("metadatas", [])
+            emb_list = data.get("embeddings", [])
+            if emb_list:
+                self.embeddings = np.array(emb_list, dtype="float32")
+            else:
+                self.embeddings = None
 
-def query_collection(
-    query_embedding: List[float],
-    top_k: int = 5,
-    collection_name: str = "policies",
-) -> List[Dict[str, Any]]:
-    """
-    Query the vector store with a single embedding.
-    Returns list of dicts: {'text', 'metadata', 'score'}
-    """
-    collection = get_collection(collection_name)
+        self._loaded = True
 
-    result = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=top_k,
-    )
+    def persist(self) -> None:
+        """Persist current index to disk."""
+        os.makedirs(self.persist_path, exist_ok=True)
 
-    # result fields: ids, documents, metadatas, distances
-    docs = []
-    for idx in range(len(result["documents"][0])):
-        docs.append({
-            "id": result["ids"][0][idx],
-            "text": result["documents"][0][idx],
-            "metadata": result["metadatas"][0][idx],
-            "score": result["distances"][0][idx],
-        })
+        data = {
+            "texts": self.texts,
+            "metadatas": self.metadatas,
+            "embeddings": self.embeddings.tolist() if self.embeddings is not None else [],
+        }
 
-    return docs
+        with open(self.index_file, "wb") as f:
+            pickle.dump(data, f)
+
+    # ------------------------------------------------------------------ #
+    # Indexing
+    # ------------------------------------------------------------------ #
+
+    def add_texts(
+        self,
+        texts: List[str],
+        metadatas: List[Dict[str, Any]],
+        embedder: Any,
+    ) -> None:
+        """
+        Add texts + metadatas to the index and compute embeddings.
+
+        The embedder is expected to have a method:
+            embed(texts: List[str]) -> List[List[float]]
+        """
+        self.load()
+
+        if not texts:
+            return
+
+        new_embs = np.array(embedder.embed(texts), dtype="float32")
+
+        if self.embeddings is None:
+            self.embeddings = new_embs
+            self.texts = list(texts)
+            self.metadatas = list(metadatas)
+        else:
+            self.embeddings = np.concatenate([self.embeddings, new_embs], axis=0)
+            self.texts.extend(texts)
+            self.metadatas.extend(metadatas)
+
+    # ------------------------------------------------------------------ #
+    # Retrieval
+    # ------------------------------------------------------------------ #
+
+    def similarity_search(
+        self,
+        query: str,
+        embedder: Any,
+        k: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """
+        Return top-k similar chunks for the query.
+
+        We return a list of dicts with 'text' and 'metadata' keys, so that
+        main._get_doc_text/_get_doc_metadata work correctly.
+        """
+        self.load()
+
+        if self.embeddings is None or len(self.texts) == 0:
+            return []
+
+        # Embed query (we expect embedder.embed to return List[List[float]])
+        q_emb = np.array(embedder.embed([query])[0], dtype="float32")
+
+        # Cosine similarity between query and all docs
+        doc_norms = np.linalg.norm(self.embeddings, axis=1)
+        q_norm = np.linalg.norm(q_emb)
+        denom = doc_norms * q_norm
+        denom[denom == 0] = 1e-10
+
+        sims = (self.embeddings @ q_emb) / denom
+
+        # Get top-k indices (highest similarity)
+        k = min(k, len(self.texts))
+        top_indices = sims.argsort()[::-1][:k]
+
+        results: List[Dict[str, Any]] = []
+        for idx in top_indices:
+            results.append(
+                {
+                    "text": self.texts[int(idx)],
+                    "metadata": self.metadatas[int(idx)],
+                    "score": float(sims[int(idx)]),
+                }
+            )
+
+        return results
