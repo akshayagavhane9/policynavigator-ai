@@ -46,7 +46,7 @@ def confidence_color(label: str) -> str:
 
 
 # -------------------------------------------------------------------
-# Page config
+# Page config & session state
 # -------------------------------------------------------------------
 
 st.set_page_config(
@@ -55,6 +55,13 @@ st.set_page_config(
     layout="wide",
 )
 
+if "kb_files" not in st.session_state:
+    st.session_state["kb_files"] = []
+if "quiz_items" not in st.session_state:
+    st.session_state["quiz_items"] = None
+if "kb_indexed" not in st.session_state:
+    st.session_state["kb_indexed"] = False
+
 # -------------------------------------------------------------------
 # Sidebar – Knowledge Base + Links
 # -------------------------------------------------------------------
@@ -62,7 +69,7 @@ st.set_page_config(
 st.sidebar.title("📚 Knowledge Base")
 st.sidebar.caption(
     "Upload NEU policy documents (PDF, DOCX, TXT). "
-    "They will be used to ground answers."
+    "They will be used to ground answers and quizzes."
 )
 
 uploaded_files = st.sidebar.file_uploader(
@@ -75,25 +82,33 @@ uploaded_files = st.sidebar.file_uploader(
 if uploaded_files:
     for f in uploaded_files:
         st.sidebar.write(f"• {f.name}")
+elif st.session_state["kb_files"]:
+    st.sidebar.caption("Last indexed policies:")
+    for name in st.session_state["kb_files"]:
+        st.sidebar.write(f"• {name}")
 
 if st.sidebar.button("Index Documents", type="primary"):
     try:
         raw_dir = "data/kb_raw"
         os.makedirs(raw_dir, exist_ok=True)
         saved_paths: List[str] = []
+        saved_names: List[str] = []
 
         if not uploaded_files:
             st.sidebar.warning("Please upload at least one file first.")
         else:
             for uf in uploaded_files:
                 save_path = os.path.join(raw_dir, uf.name)
-                # Write/overwrite file contents
                 with open(save_path, "wb") as out:
                     out.write(uf.read())
                 saved_paths.append(save_path)
+                saved_names.append(uf.name)
 
             if saved_paths:
                 n_chunks = ingest_and_index_documents(saved_paths)
+                st.session_state["kb_files"] = saved_names
+                st.session_state["kb_indexed"] = True
+                st.session_state["quiz_items"] = None
                 st.sidebar.success(
                     f"Indexed {n_chunks} chunks from {len(saved_paths)} file(s)."
                 )
@@ -140,7 +155,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Tabs: Q&A, What-if, Quiz, About
 tab_qa, tab_whatif, tab_quiz, tab_docs = st.tabs(
     ["💬 Q&A Assistant", "🤔 What-If Scenarios", "📝 Policy Quiz", "📘 About & Docs"]
 )
@@ -170,6 +184,8 @@ with tab_qa:
         placeholder="e.g., What is the policy on cheating in exams?",
     )
 
+    res = None
+
     if st.button("Generate Answer", type="primary"):
         if not user_question.strip():
             st.warning("Please enter a question.")
@@ -186,54 +202,88 @@ with tab_qa:
                     st.error(f"Something went wrong while generating the answer: {e}")
                     res = None
 
-        if res:
-            col_ans, col_meta = st.columns([2, 1])
+    if res:
+        col_ans, col_meta = st.columns([2, 1])
 
-            with col_ans:
-                st.markdown("### 🧠 Answer")
-                st.write(res.get("answer", ""))
+        with col_ans:
+            st.markdown("### 🧠 Answer")
+            st.write(res.get("answer", ""))
 
-            with col_meta:
-                st.markdown("### 📊 Confidence & Metrics")
-                label = res.get("confidence_label", "low")
-                score = res.get("confidence_score", 0.0)
-                st.write("**Confidence**")
-                st.markdown(
-                    f"""
+        with col_meta:
+            st.markdown("### 📊 Confidence & Risk")
+
+            label = res.get("confidence_label", "low")
+            score = float(res.get("confidence_score", 0.0))
+
+            st.write("**Confidence**")
+            st.markdown(
+                f"""
 <div style="padding:12px 16px; border-radius:12px;
             background:#FFF3E0; border:1px solid #FFB74D;">
     <div style="font-size:22px; font-weight:600;">{confidence_color(label)}</div>
     <div style="color:#555; margin-top:4px;">Score: {score:.2f}</div>
 </div>
 """,
-                    unsafe_allow_html=True,
+                unsafe_allow_html=True,
+            )
+
+            # NEW: hallucination warning banner
+            hallucination_flag = bool(res.get("hallucination_flag", False))
+            hallucination_risk = res.get("hallucination_risk", "unknown")
+
+            if hallucination_flag:
+                st.error(
+                    f"⚠ High hallucination risk ({hallucination_risk}). "
+                    "The retrieved policy passages did not strongly match this question. "
+                    "Double-check with official NEU policy documents."
+                )
+            else:
+                st.caption(
+                    f"Hallucination risk: **{hallucination_risk}** "
+                    "(based on retrieval similarity)."
                 )
 
-                latency = res.get("latency_ms", 0)
-                st.caption(f"Latency: {latency} ms")
+            latency = int(res.get("latency_ms", 0))
+            st.caption(f"Latency: {latency} ms")
 
-                st.markdown("### ⭐ Feedback")
-                col_fb1, col_fb2 = st.columns(2)
-                with col_fb1:
-                    st.button("👍 Helpful", key="fb_helpful")
-                with col_fb2:
-                    st.button("👎 Not helpful", key="fb_not_helpful")
+            st.markdown("### ⭐ Feedback")
+            col_fb1, col_fb2 = st.columns(2)
+            with col_fb1:
+                st.button("👍 Helpful", key="fb_helpful")
+            with col_fb2:
+                st.button("👎 Not helpful", key="fb_not_helpful")
 
-            st.markdown("### 📎 Citations")
-            citations = res.get("citations", []) or []
-            if not citations:
-                st.write("No citations returned by the system.")
-            else:
-                for c in citations:
-                    src = c.get("source", "unknown")
-                    chunk_id = c.get("chunk_id", "")
-                    rank = c.get("rank", "")
-                    st.markdown(f"- **{src}** – chunk `{chunk_id}` (rank {rank})")
+        # NEW: Citation Viewer with full retrieved chunks
+        st.markdown("### 📎 Citation Viewer")
 
-            if rewrite_query:
-                used_query = res.get("used_query", "")
-                with st.expander("See how your question was rewritten"):
-                    st.code(used_query or "(no rewrite used)", language="text")
+        citations = res.get("citations", []) or []
+        if not citations:
+            st.write("No citations returned by the system.")
+        else:
+            for c in citations:
+                src = c.get("source", "unknown")
+                chunk_id = c.get("chunk_id", "")
+                rank = c.get("rank", "")
+                sim = float(c.get("similarity", 0.0))
+                text = (c.get("text") or "").strip()
+
+                header = f"Source: {src} • chunk {chunk_id} • rank {rank} • sim={sim:.2f}"
+                with st.expander(header, expanded=(rank == 1)):
+                    # Show a nicely formatted chunk preview
+                    st.markdown(
+                        f"""
+**Excerpt**
+
+> {text}
+
+_Similarity score: {sim:.2f}_
+                        """
+                    )
+
+        if rewrite_query:
+            used_query = res.get("used_query", "")
+            with st.expander("See how your question was rewritten"):
+                st.code(used_query or "(no rewrite used)", language="text")
 
 # -------------------------------------------------------------------
 # Tab 2 – What-If Scenarios
@@ -294,28 +344,62 @@ Using general university policy principles, explain:
 
 with tab_quiz:
     st.subheader("Learn the Policy with a Quick Quiz")
-    st.caption(
-        "The quiz is generated from general university policy knowledge using the same LLM. "
-        "It’s a lightweight learning tool — not an official assessment."
-    )
+
+    kb_files = st.session_state.get("kb_files", [])
+    kb_indexed = st.session_state.get("kb_indexed", False)
+
+    if kb_indexed and kb_files:
+        st.caption(
+            "The quiz is generated **from your indexed NEU policy documents**. "
+            "It’s a lightweight learning tool — not an official assessment."
+        )
+        st.markdown(f"*Current policies in scope:* `{', '.join(kb_files)}`")
+    else:
+        st.caption(
+            "The quiz is generated from general university policy knowledge using the same LLM. "
+            "Upload and index NEU policy PDFs in the sidebar to tailor the quiz."
+        )
 
     num_questions = st.slider(
-        "Number of quiz questions", min_value=3, max_value=8, value=5
+        "Number of quiz questions",
+        min_value=3,
+        max_value=8,
+        value=5,
+        step=1,
+        key="quiz_num_questions",
     )
 
-    if st.button("Generate Quiz"):
+    generate_quiz_clicked = st.button("Generate Quiz")
+
+    if generate_quiz_clicked:
         try:
             llm = LLMClient()
 
+            if kb_files:
+                policy_scope_line = (
+                    "Base every question strictly on the content and themes that would appear "
+                    "in typical NEU policy documents with these filenames: "
+                    + ", ".join(kb_files)
+                    + ". Avoid questions that are unrelated to these kinds of policies."
+                )
+            else:
+                policy_scope_line = (
+                    "If no specific policy documents are provided, use general university "
+                    "academic integrity and conduct principles that are common in US universities."
+                )
+
             system_prompt = (
                 "You are an expert tutor on university academic integrity and student conduct policies. "
-                "You generate short quizzes to help students understand key rules, violations, and consequences."
+                "You generate short quizzes to help students understand key rules, violations, and consequences. "
+                "Questions should be clear, unambiguous, and appropriate for university students."
             )
 
             user_prompt = f"""
 Generate {num_questions} multiple-choice quiz questions about university academic integrity
 and student conduct policies (for example: cheating, plagiarism, collaboration rules,
 sanctions, appeals).
+
+{policy_scope_line}
 
 Return your answer ONLY as a JSON array (no prose before or after) with this exact schema:
 
@@ -341,41 +425,44 @@ If you are unsure of a detail, ask a more general question instead of inventing 
             if not isinstance(quiz_items, list) or not quiz_items:
                 raise ValueError("Parsed quiz is empty or not a list.")
 
+            st.session_state["quiz_items"] = quiz_items
             st.success("Quiz generated! Scroll down to practice.")
-
-            for idx, item in enumerate(quiz_items, start=1):
-                question = (item.get("question") or "").strip()
-                options = item.get("options") or []
-                answer = (item.get("answer") or "").strip()
-                explanation = (item.get("explanation") or "").strip()
-
-                if not question or not options:
-                    continue
-
-                with st.container():
-                    st.markdown(f"**Q{idx}. {question}**")
-
-                    user_choice = st.radio(
-                        "Your answer:",
-                        options,
-                        key=f"quiz_q_{idx}",
-                        label_visibility="collapsed",
-                    )
-
-                    if st.button("Check answer", key=f"quiz_check_{idx}"):
-                        if user_choice == answer:
-                            st.success("✅ Correct!")
-                        else:
-                            st.error(f"❌ Not quite. Correct answer: **{answer}**")
-
-                        if explanation:
-                            st.info(explanation)
-
-                    st.markdown("---")
-
         except Exception as e:
             st.error(f"Failed to generate quiz: {e}")
+            st.session_state["quiz_items"] = None
 
+    quiz_items = st.session_state.get("quiz_items")
+
+    if quiz_items:
+        for idx, item in enumerate(quiz_items, start=1):
+            question = (item.get("question") or "").strip()
+            options = item.get("options") or []
+            answer = (item.get("answer") or "").strip()
+            explanation = (item.get("explanation") or "").strip()
+
+            if not question or not options:
+                continue
+
+            with st.container():
+                st.markdown(f"**Q{idx}. {question}**")
+
+                user_choice = st.radio(
+                    "Your answer:",
+                    options,
+                    key=f"quiz_q_{idx}",
+                    label_visibility="collapsed",
+                )
+
+                if st.button("Check answer", key=f"quiz_check_{idx}"):
+                    if user_choice == answer:
+                        st.success("✅ Correct!")
+                    else:
+                        st.error(f"❌ Not quite. Correct answer: **{answer}**")
+
+                    if explanation:
+                        st.info(explanation)
+
+                st.markdown("---")
     else:
         st.info("Click **Generate Quiz** to get started.")
 
