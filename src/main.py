@@ -1,6 +1,6 @@
 import os
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from src.rag.loaders.pdf_loader import load_pdf
 from src.rag.loaders.docx_loader import load_docx
@@ -26,6 +26,52 @@ def _ensure_dirs() -> None:
     os.makedirs(KB_RAW_DIR, exist_ok=True)
     os.makedirs(KB_PROCESSED_DIR, exist_ok=True)
     os.makedirs(VECTOR_DB_PATH, exist_ok=True)
+
+
+# ---------------------------------------------------------------------
+# Simple helpers for confidence & hallucination
+# ---------------------------------------------------------------------
+
+
+def _confidence_label_from_score(score: float) -> str:
+    """Map a similarity-based score into a label."""
+    if score >= 0.75:
+        return "high"
+    if score >= 0.5:
+        return "medium"
+    return "low"
+
+
+def _detect_hallucination(
+    similarities: List[float], threshold: float = 0.5
+) -> Tuple[bool, str, float]:
+    """
+    Very simple hallucination detector:
+
+    - Look at the max similarity among retrieved chunks.
+    - If max_sim < threshold → high hallucination risk, flag=True.
+    - If threshold <= max_sim < 0.7 → medium risk, no hard flag.
+    - Otherwise → low risk.
+
+    Returns:
+        (hallucination_flag, risk_label, max_similarity)
+    """
+    if not similarities:
+        return True, "high", 0.0
+
+    max_sim = max(similarities)
+
+    if max_sim < threshold:
+        hallucinated = True
+        risk = "high"
+    elif max_sim < 0.7:
+        hallucinated = False
+        risk = "medium"
+    else:
+        hallucinated = False
+        risk = "low"
+
+    return hallucinated, risk, max_sim
 
 
 # ---------------------------------------------------------------------
@@ -103,10 +149,7 @@ def ingest_and_index_documents(file_paths: List[str]) -> int:
 
     # ----------------- embeddings & vector store -----------------
     texts = [c["text"] for c in all_chunks]
-    metadatas = [
-        {"source": c["source"], "chunk_id": c["id"]}
-        for c in all_chunks
-    ]
+    metadatas = [{"source": c["source"], "chunk_id": c["id"]} for c in all_chunks]
 
     vectordb.add_texts(texts=texts, metadatas=metadatas, embedder=embedder)
     vectordb.persist()
@@ -133,9 +176,11 @@ def answer_question(
 
     Returns a dict that ALWAYS has at least:
         - "answer": str
-        - "citations": List[Dict[str, Any]]
+        - "citations": List[Dict[str, Any]] (each with source, chunk_id, rank, similarity, text)
         - "confidence_label": "high" | "medium" | "low"
         - "confidence_score": float in [0,1]
+        - "hallucination_flag": bool
+        - "hallucination_risk": "low" | "medium" | "high"
         - "used_query": str
         - "latency_ms": int
     """
@@ -148,6 +193,8 @@ def answer_question(
             "citations": [],
             "confidence_label": "low",
             "confidence_score": 0.0,
+            "hallucination_flag": False,
+            "hallucination_risk": "high",
             "used_query": "",
             "latency_ms": int((time.time() - start_time) * 1000),
         }
@@ -183,43 +230,81 @@ def answer_question(
     # Retrieve top-k chunks
     # ------------------------------------------------------------------
     try:
+        # Expected to return a list of dicts like:
+        # {"text": str, "metadata": {...}, "score": float}
         docs = vectordb.similarity_search(used_query, embedder=embedder, k=k)
     except Exception as e:
         print(f"[RETRIEVAL] similarity_search failed: {e}")
         docs = []
 
-    latency_ms = int((time.time() - start_time) * 1000)
-
     if not docs:
+        latency_ms = int((time.time() - start_time) * 1000)
         return {
             "answer": "I couldn't find relevant information for this question in the indexed documents.",
             "citations": [],
             "confidence_label": "low",
             "confidence_score": 0.1,
+            "hallucination_flag": True,
+            "hallucination_risk": "high",
             "used_query": used_query,
             "latency_ms": latency_ms,
         }
 
     # ------------------------------------------------------------------
-    # Build context & citations
+    # Build context, citations & similarity list
     # ------------------------------------------------------------------
     context_blocks: List[str] = []
     citations: List[Dict[str, Any]] = []
+    similarities: List[float] = []
 
     for i, doc in enumerate(docs):
         text = doc.get("text", "")
         meta = doc.get("metadata", {}) or {}
+
+        # Try to read similarity/score from doc or metadata; fallback to 0.0
+        score = doc.get("score", meta.get("score", 0.0))
+        try:
+            sim = float(score)
+        except Exception:
+            sim = 0.0
+
+        similarities.append(sim)
+
         source = meta.get("source", "unknown")
         chunk_id = meta.get("chunk_id", f"chunk_{i}")
 
         context_blocks.append(
-            f"[{i + 1}] Source: {source} (chunk {chunk_id})\n{text}"
+            f"[{i + 1}] Source: {source} (chunk {chunk_id}) | sim={sim:.2f}\n{text}"
         )
         citations.append(
-            {"source": source, "chunk_id": chunk_id, "rank": i + 1}
+            {
+                "source": source,
+                "chunk_id": chunk_id,
+                "rank": i + 1,
+                "similarity": sim,
+                "text": text,
+            }
         )
 
     context_str = "\n\n".join(context_blocks)
+
+    # ------------------------------------------------------------------
+    # Hallucination detection & confidence
+    # ------------------------------------------------------------------
+    hallucination_flag, hallucination_risk, max_sim = _detect_hallucination(
+        similarities, threshold=0.5
+    )
+    confidence_score = float(max_sim)
+    confidence_label = _confidence_label_from_score(confidence_score)
+
+    # If hallucination_flag is True, warn the LLM in the prompt
+    grounding_warning = ""
+    if hallucination_flag:
+        grounding_warning = (
+            "Important: The retrieved policy passages do NOT strongly match the question. "
+            "If the answer is not clearly supported by the excerpts, explicitly say that the "
+            "policy is unclear or not covered, and encourage the student to check official NEU documents."
+        )
 
     # ------------------------------------------------------------------
     # Style instructions
@@ -239,12 +324,20 @@ def answer_question(
 
     system_prompt = (
         "You are PolicyNavigator AI, an assistant that answers questions about university policies. "
-        "You must stay faithful to the provided context and avoid hallucinations."
+        "You must stay faithful to the provided context and avoid hallucinations. "
+        "If the context does not clearly answer the question, say so and recommend checking the "
+        "official policy documents.\n\n"
+        f"{style_instruction}\n\n"
+        f"{grounding_warning}"
     )
+
     user_prompt = (
         f"Question:\n{question}\n\n"
-        f"{style_instruction}\n\n"
-        f"Context:\n{context_str}"
+        f"Below are policy excerpts retrieved as potentially relevant context:\n\n"
+        f"{context_str}\n\n"
+        "Using ONLY the information above, answer the question. "
+        "If the text does not clearly answer it, say that the policy is unclear or not covered "
+        "and encourage the student to consult the official policy."
     )
 
     # ------------------------------------------------------------------
@@ -258,21 +351,15 @@ def answer_question(
         print(f"[LLM] Failed to generate answer: {e}")
         answer_text = "Something went wrong while consulting the policy documents."
 
-    # Simple confidence heuristic: more retrieved chunks ⇒ higher confidence
-    if len(docs) >= 6:
-        conf_label, conf_score = "high", 0.9
-    elif len(docs) >= 3:
-        conf_label, conf_score = "medium", 0.6
-    else:
-        conf_label, conf_score = "low", 0.3
-
     latency_ms = int((time.time() - start_time) * 1000)
 
     return {
         "answer": answer_text,
         "citations": citations,
-        "confidence_label": conf_label,
-        "confidence_score": conf_score,
+        "confidence_label": confidence_label,
+        "confidence_score": confidence_score,
+        "hallucination_flag": hallucination_flag,
+        "hallucination_risk": hallucination_risk,
         "used_query": used_query,
         "latency_ms": latency_ms,
     }
@@ -305,6 +392,15 @@ if __name__ == "__main__":
         print("\n[ANSWER]")
         print(res.get("answer"))
         print("\n[CITATIONS]")
-        print(res.get("citations"))
+        for c in res.get("citations", []):
+            print(
+                f"- {c.get('source')} | {c.get('chunk_id')} | "
+                f"rank={c.get('rank')} | sim={c.get('similarity'):.2f}"
+            )
+        print(
+            "\n[HALLUCINATION]",
+            res.get("hallucination_flag"),
+            res.get("hallucination_risk"),
+        )
     else:
         print("[MAIN] No files in kb_raw; add a policy PDF/TXT first.")
