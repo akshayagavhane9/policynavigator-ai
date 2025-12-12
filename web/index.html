@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PolicyNavigator AI – Policy Assistant</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <!-- ================= NAVBAR ================= -->
+  <header class="navbar">
+    <div class="nav-inner">
+      <div class="nav-left">
+        <div class="logo-mark">
+          <span class="logo-glyph">⟲</span>
+        </div>
+        <div class="logo-text">
+          <div class="logo-title">PolicyNavigator AI</div>
+          <div class="logo-sub"> Policy Assistant · RAG + LLM</div>
+        </div>
+      </div>
+
+      <nav class="nav-links">
+        <a href="#hero" class="nav-link active">Home</a>
+        <a href="#features" class="nav-link">Features</a>
+        <a href="#how-it-works" class="nav-link">How it Works</a>
+        <a href="#demo" class="nav-link">Demo</a>
+        <a href="#metrics" class="nav-link">Metrics</a>
+        <a href="#team-docs" class="nav-link">Team & Docs</a>
+      </nav>
+
+      <a
+        href="https://github.com/akshayagavhane9/policynavigator-ai"
+        target="_blank"
+        class="nav-cta"
+      >
+        View on GitHub
+      </a>
+    </div>
+  </header>
+
+  <main>
+    <!-- ================ HERO =================== -->
+    <section id="hero" class="section hero">
+      <div class="hero-inner">
+        <div class="hero-left">
+          <div class="hero-pill-row">
+            <span class="pill pill-outline">
+              ⚡ Built with RAG, Prompt Engineering &amp; Synthetic Evaluation
+            </span>
+          </div>
+          <h1 class="hero-title">
+            Understand policies
+            <span class="hero-highlight">in plain English.</span>
+          </h1>
+          <p class="hero-subtitle">
+            PolicyNavigator AI is a retrieval-augmented assistant that answers policy
+            questions, explains student rights, simulates what-if scenarios, and even
+            quizzes you — grounded in the exact NEU policy PDFs you upload.
+          </p>
+
+          <div class="hero-cta">
+            <button class="btn-primary-lg">
+              Try the Live Demo <span class="arrow">→</span>
+            </button>
+          
+            <button class="btn-outline-lg">
+              <span class="play-icon">▶</span> Watch 10-Minute Walkthrough
+            </button>
+          </div>
+          
+          <div class="hero-tags">
+            <span class="pill pill-soft">RAG over NEU policy PDFs</span>
+            <span class="pill pill-soft">Hallucination detector</span>
+            <span class="pill pill-soft">Citation viewer</span>
+          </div>
+        </div>
+
+        <div class="hero-right">
+          <!-- Fake app card to mirror Streamlit UI -->
+          <div class="app-card">
+            <div class="app-header">
+              <div class="dots">
+                <span class="dot red"></span>
+                <span class="dot yellow"></span>
+                <span class="dot green"></span>
+              </div>
+              <span class="app-title">PolicyNavigator AI – Streamlit App</span>
+            </div>
+            <div class="app-body">
+              <div class="app-kb">
+                <div class="kb-title">Knowledge Base</div>
+                <div class="kb-item">
+                  <span class="kb-icon">📄</span>
+                  <span class="kb-text">Academic_integrity_policyNEU.pdf</span>
+                  <span class="kb-status">Indexed</span>
+                </div>
+              </div>
+              <div class="app-qa">
+                <div class="qa-label">Ask a Policy Question</div>
+                <div class="qa-bubble">
+                  What happens if I'm caught cheating on an exam?
+                </div>
+                <div class="qa-answer">
+                  According to the Academic Integrity Policy, cheating on an exam is
+                  considered a serious violation. Consequences may include grade
+                  penalties, notation on your record, or suspension…
+                </div>
+              </div>
+              <div class="app-metrics">
+                <div class="metric-pill">
+                  Confidence: <span class="metric-strong">High</span>
+                </div>
+                <div class="metric-pill">
+                  Latency: <span class="metric-strong">2.9s</span>
+                </div>
+                <div class="metric-pill">
+                  Hallucination: <span class="metric-strong">0%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================ FEATURES =================== -->
+    <section id="features" class="section section-light">
+      <div class="section-header">
+        <h2>Everything you need to understand policies</h2>
+        <p>
+          From simple questions to complex scenarios, PolicyNavigator AI has you
+          covered.
+        </p>
+      </div>
+
+      <div class="feature-grid">
+        <article class="card feature-card">
+          <div class="card-icon">💬</div>
+          <h3>Q&amp;A Assistant</h3>
+          <p>
+            Ask natural-language questions grounded in uploaded policy PDFs,
+            with citations, confidence scores, and hallucination warnings.
+          </p>
+          <button class="card-link scroll-demo">Try it in the demo →</button>
+        </article>
+
+        <article class="card feature-card">
+          <div class="card-icon">🤔</div>
+          <h3>What-If Scenarios</h3>
+          <p>
+            Describe hypothetical situations and get structured reasoning about how
+            policies might apply — for learning, not legal advice.
+          </p>
+          <button class="card-link scroll-demo">Analyze a scenario →</button>
+        </article>
+
+        <article class="card feature-card">
+          <div class="card-icon">📝</div>
+          <h3>Policy Quiz</h3>
+          <p>
+            Auto-generated MCQs help students actively learn the rules instead of
+            passively reading PDFs.
+          </p>
+          <button class="card-link scroll-demo">Generate a quiz →</button>
+        </article>
+
+        <article class="card feature-card">
+          <div class="card-icon">📊</div>
+          <h3>Synthetic Evaluation</h3>
+          <p>
+            Synthetic Q&amp;A, F1, latency, and hallucination metrics to evaluate
+            quality and guide prompt / RAG improvements.
+          </p>
+          <button class="card-link scroll-metrics">See the metrics →</button>
+        </article>
+      </div>
+    </section>
+
+    <!-- ================ HOW IT WORKS =================== -->
+    <section id="how-it-works" class="section">
+      <div class="section-header">
+        <h2>How it works</h2>
+        <p>
+          A three-step pipeline from document upload to grounded answers.
+        </p>
+      </div>
+
+      <div class="steps-grid">
+        <div class="card step-card">
+          <div class="step-number">01</div>
+          <div class="step-icon">⬆️</div>
+          <h3>Upload &amp; Index</h3>
+          <p>
+            Students upload NEU policy PDFs; the system cleans, chunks, and embeds
+            them into a vector database.
+          </p>
+        </div>
+        <div class="step-arrow">➜</div>
+        <div class="card step-card">
+          <div class="step-number">02</div>
+          <div class="step-icon">🔎</div>
+          <h3>Retrieve &amp; Reason</h3>
+          <p>
+            We retrieve top-K chunks and use prompt-engineered templates to
+            generate strictly grounded answers.
+          </p>
+        </div>
+        <div class="step-arrow">➜</div>
+        <div class="card step-card">
+          <div class="step-number">03</div>
+          <div class="step-icon">✅</div>
+          <h3>Explain &amp; Evaluate</h3>
+          <p>
+            The UI shows answers, citations, confidence, and hallucination risk.
+            Synthetic tests measure accuracy and robustness.
+          </p>
+        </div>
+      </div>
+
+      <div class="arch-wrapper">
+        <h3 class="arch-title">System Architecture</h3>
+        <div class="arch-flow">
+          <span class="arch-pill">User</span>
+          <span class="arch-arrow">➜</span>
+          <span class="arch-pill">React-style Web Page</span>
+          <span class="arch-arrow">➜</span>
+          <span class="arch-pill">FastAPI Backend</span>
+          <span class="arch-arrow">➜</span>
+          <span class="arch-pill">RAG Pipeline</span>
+          <span class="arch-arrow">➜</span>
+          <span class="arch-pill">LLM (OpenAI)</span>
+          <span class="arch-arrow">➜</span>
+          <span class="arch-pill">Answer + Citations</span>
+        </div>
+        <p class="arch-caption">
+          The same backend powers both this web page and the Streamlit dashboard
+          used during development.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================ LIVE DEMO =================== -->
+    <section id="demo" class="section section-light">
+      <div class="section-header">
+        <div class="section-pill">Interactive Demo</div>
+        <h2>Experience PolicyNavigator AI</h2>
+        <p>
+          Try out the complete workflow from document upload to intelligent policy
+          analysis.
+        </p>
+      </div>
+
+      <div class="demo-streamlit-cta">
+        <a href="http://localhost:8501" target="_blank" class="btn btn-primary btn-large">
+          Launch Streamlit Demo ↗
+        </a>
+      </div>
+
+      <!-- Demo panels -->
+      <div class="demo-top-card card">
+        <div class="demo-top-header">
+          <div class="icon-circle upload">⬆️</div>
+          <div>
+            <h3>1. Upload Policy Documents</h3>
+            <p class="demo-caption">
+              Upload PDF, DOCX, or TXT policy files. They are used only for this local demo session.
+            </p>
+          </div>
+          <button id="btn-index" class="btn btn-primary demo-index-btn">
+            Index Documents
+          </button>
+        </div>
+
+        <label class="file-drop">
+          <input
+            id="file-input"
+            type="file"
+            multiple
+            accept=".pdf,.docx,.txt"
+          />
+          <div class="file-drop-inner">
+            <div class="file-drop-icon">☁️</div>
+            <div class="file-drop-text">
+              Drag &amp; drop files here or click to browse
+            </div>
+          </div>
+        </label>
+
+        <div id="file-list" class="file-list"></div>
+        <p id="index-status" class="status-text"></p>
+      </div>
+
+      <div class="demo-middle-card card">
+        <div class="demo-top-header">
+          <div class="icon-circle question">💬</div>
+          <div>
+            <h3>2. Ask a Policy Question</h3>
+            <p class="demo-caption">
+              Enter your question about NEU policies. Answers are grounded in your indexed PDFs.
+            </p>
+          </div>
+        </div>
+
+        <textarea
+          id="question-input"
+          class="input-textarea large"
+          placeholder="e.g., What is the policy on cheating in exams?"
+        ></textarea>
+
+        <div class="demo-controls">
+          <div class="demo-control-group">
+            <label>Answer style</label>
+            <select id="answer-style" class="input-select">
+              <option value="Strict policy quote">Strict policy quote</option>
+              <option value="Explain my rights (student-friendly)">
+                Explain my rights (student-friendly)
+              </option>
+            </select>
+          </div>
+
+          <div class="demo-control-group">
+            <label>Context chunks (k)</label>
+            <input
+              id="k-input"
+              type="number"
+              min="3"
+              max="10"
+              value="5"
+              class="input-number"
+            />
+          </div>
+
+          <div class="demo-control-group checkbox-group">
+            <input
+              id="rewrite-checkbox"
+              type="checkbox"
+              checked
+            />
+            <label for="rewrite-checkbox">Rewrite for retrieval</label>
+          </div>
+        </div>
+
+        <button id="btn-ask" class="btn btn-primary btn-full">
+          Generate Answer
+        </button>
+
+        <!-- Answer + Meta -->
+        <div id="qa-result" class="qa-result hidden">
+          <div class="qa-layout">
+            <div class="qa-main">
+              <h4>Answer</h4>
+              <p id="answer-text" class="answer-text"></p>
+            </div>
+
+            <aside class="qa-side">
+              <div class="qa-meta">
+                <div class="meta-item">
+                  <span class="meta-label">Confidence</span>
+                  <span id="confidence-badge" class="meta-badge">–</span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">Hallucination risk</span>
+                  <span id="hallucination-badge" class="meta-badge">–</span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">Latency</span>
+                  <span id="latency-label" class="meta-badge">–</span>
+                </div>
+              </div>
+
+              <div id="hallucination-warning" class="hallucination-warning hidden">
+                ⚠ High hallucination risk. Please double-check with the official NEU
+                policy documents.
+              </div>
+
+              <div class="citations">
+                <h4>Citations</h4>
+                <div id="citation-list" class="citation-container">
+                  <!-- citation cards injected here -->
+                </div>
+              </div>
+
+              <details id="rewrite-details" class="rewrite-details hidden">
+                <summary>See how your question was rewritten</summary>
+                <pre id="used-query"></pre>
+              </details>
+            </aside>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom grid: scenario + quiz -->
+      <div class="demo-bottom-grid">
+        <div class="card demo-panel">
+          <div class="demo-top-header small">
+            <div class="icon-circle scenario">🧪</div>
+            <div>
+              <h3>3. What-If Scenario</h3>
+              <p class="demo-caption">
+                Explore hypothetical policy scenarios.
+              </p>
+            </div>
+          </div>
+
+          <textarea
+            id="scenario-input"
+            class="input-textarea"
+            placeholder="e.g., What would happen if a student misses the withdrawal deadline but has documented medical circumstances?"
+          ></textarea>
+
+          <button id="btn-scenario" class="btn btn-secondary btn-full">
+            Analyze Scenario
+          </button>
+          <div id="scenario-result" class="scenario-result"></div>
+        </div>
+
+        <div class="card demo-panel">
+          <div class="demo-top-header small">
+            <div class="icon-circle quiz">❓</div>
+            <div>
+              <h3>4. Policy Quiz</h3>
+              <p class="demo-caption">
+                Test your policy knowledge with quick MCQs.
+              </p>
+            </div>
+          </div>
+
+          <div class="demo-control-group">
+            <label for="quiz-count">Number of questions</label>
+            <input
+              id="quiz-count"
+              type="number"
+              min="3"
+              max="8"
+              value="4"
+              class="input-number"
+            />
+          </div>
+
+          <button id="btn-quiz" class="btn btn-secondary btn-full">
+            Generate Quiz
+          </button>
+
+          <div id="quiz-result" class="quiz-result"></div>
+        </div>
+      </div>
+
+      <p class="demo-note">
+        Note: This demo expects your FastAPI backend to be running locally
+        (default: <code>http://127.0.0.1:8000</code>).
+      </p>
+    </section>
+
+    <!-- ================ METRICS =================== -->
+    <section id="metrics" class="section metrics-section">
+      <div class="section-header section-header-dark">
+        <h2>We don't just eyeball the output — we measure it.</h2>
+        <p>
+          Rigorous evaluation using synthetic datasets and automated metrics.
+        </p>
+      </div>
+
+      <div class="metrics-cards">
+        <div class="metric-card">
+          <div class="metric-icon">📈</div>
+          <div class="metric-value">0.92</div>
+          <div class="metric-label">F1 Score</div>
+          <div class="metric-sub">on synthetic Q&amp;A</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon">🕒</div>
+          <div class="metric-value">2.9s</div>
+          <div class="metric-label">Average Latency</div>
+          <div class="metric-sub">per query response</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon">🛡️</div>
+          <div class="metric-value">0%</div>
+          <div class="metric-label">Hallucination Rate</div>
+          <div class="metric-sub">on high-confidence answers</div>
+        </div>
+      </div>
+
+      <div class="metrics-detail card">
+        <h3>Accuracy by Question Type</h3>
+
+        <div class="bar-row">
+          <div class="bar-label">Definition</div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 95%;"></div>
+          </div>
+          <div class="bar-value">95%</div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label">Procedure</div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 88%;"></div>
+          </div>
+          <div class="bar-value">88%</div>
+        </div>
+
+        <div class="bar-row">
+          <div class="bar-label">Edge Cases</div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: 78%;"></div>
+          </div>
+          <div class="bar-value">78%</div>
+        </div>
+
+        <p class="metrics-footnote">
+          Synthetic Q&amp;A and evaluation notebooks help us detect failure modes
+          and tweak prompts, chunking strategies, and retrieval thresholds.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================ TEAM & DOCS =================== -->
+    <section id="team-docs" class="section section-light">
+      <div class="section-header">
+        <h2>Behind the project</h2>
+        <p>
+          Built by students, for students — as part of the Prompt Engineering
+          course at NEU.
+        </p>
+      </div>
+
+      <div class="team-docs-grid">
+        <div class="team-column">
+          <h3 class="column-title">The Team</h3>
+
+          <div class="card team-card">
+            <div class="avatar">R</div>
+            <div>
+              <div class="team-name">Ritwik</div>
+              <div class="team-role">
+                Backend, RAG pipeline, synthetic evaluation, metrics.
+              </div>
+            </div>
+          </div>
+
+          <div class="card team-card">
+            <div class="avatar">A</div>
+            <div>
+              <div class="team-name">Akshaya</div>
+              <div class="team-role">
+                Streamlit UI/UX, prompt engineering, documentation, demo.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="docs-column">
+          <h3 class="column-title">Resources &amp; Links</h3>
+
+          <div class="docs-grid">
+            <a
+              class="card doc-card"
+              href="https://github.com/akshayagavhane9/policynavigator-ai"
+              target="_blank"
+            >
+              <div class="doc-icon">🐙</div>
+              <div>
+                <div class="doc-title">GitHub Repository</div>
+                <div class="doc-sub">Source code and documentation</div>
+              </div>
+            </a>
+
+            <a class="card doc-card" href="docs/project_documentation.pdf">
+              <div class="doc-icon">📑</div>
+              <div>
+                <div class="doc-title">Technical Documentation</div>
+                <div class="doc-sub">PDF with architecture details</div>
+              </div>
+            </a>
+
+            <a class="card doc-card" href="docs/architecture_diagram.png">
+              <div class="doc-icon">🧩</div>
+              <div>
+                <div class="doc-title">Architecture Diagram</div>
+                <div class="doc-sub">System design visualization</div>
+              </div>
+            </a>
+
+            <a class="card doc-card" href="#">
+              <div class="doc-icon">🎥</div>
+              <div>
+                <div class="doc-title">10-Minute Demo Video</div>
+                <div class="doc-sub">Link to be added</div>
+              </div>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ================ FOOTER =================== -->
+  <footer class="footer">
+    <p>
+      PolicyNavigator AI · Northeastern University · Prompt Engineering Final
+      Project
+    </p>
+  </footer>
+
+  <!-- ================= JS ================= -->
+  <script>
+    const API_BASE = "http://127.0.0.1:8000";
+
+    // ---- Sticky nav active link ----
+    const navLinks = document.querySelectorAll(".nav-link");
+    navLinks.forEach((link) => {
+      link.addEventListener("click", () => {
+        navLinks.forEach((l) => l.classList.remove("active"));
+        link.classList.add("active");
+      });
+    });
+
+    // Scroll helpers
+    const demoSection = document.getElementById("demo");
+    const metricsSection = document.getElementById("metrics");
+
+    document.getElementById("cta-demo").addEventListener("click", () => {
+      demoSection.scrollIntoView({ behavior: "smooth" });
+    });
+
+    document.querySelectorAll(".scroll-demo").forEach((btn) =>
+      btn.addEventListener("click", () =>
+        demoSection.scrollIntoView({ behavior: "smooth" })
+      )
+    );
+
+    document.querySelectorAll(".scroll-metrics").forEach((btn) =>
+      btn.addEventListener("click", () =>
+        metricsSection.scrollIntoView({ behavior: "smooth" })
+      )
+    );
+
+    // ---- File upload UI ----
+    const fileInput = document.getElementById("file-input");
+    const fileList = document.getElementById("file-list");
+    fileInput.addEventListener("change", () => {
+      fileList.innerHTML = "";
+      const files = Array.from(fileInput.files || []);
+      if (!files.length) {
+        fileList.textContent = "No files selected yet.";
+        return;
+      }
+      files.forEach((f) => {
+        const div = document.createElement("div");
+        div.className = "file-item";
+        div.textContent = "• " + f.name;
+        fileList.appendChild(div);
+      });
+    });
+
+    // ---- Index documents ----
+    const btnIndex = document.getElementById("btn-index");
+    const indexStatus = document.getElementById("index-status");
+
+    btnIndex.addEventListener("click", async () => {
+      const files = Array.from(fileInput.files || []);
+      if (!files.length) {
+        indexStatus.textContent = "Please choose at least one file.";
+        indexStatus.className = "status-text status-error";
+        return;
+      }
+
+      const formData = new FormData();
+      files.forEach((file) => formData.append("files", file, file.name));
+
+      indexStatus.textContent = "Indexing documents…";
+      indexStatus.className = "status-text";
+
+      try {
+        const res = await fetch(API_BASE + "/api/index", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!res.ok) throw new Error("HTTP " + res.status);
+
+        const data = await res.json();
+        const nChunks = data.num_chunks ?? data.n_chunks ?? "?";
+        indexStatus.textContent =
+          "Indexed " + nChunks + " chunks from " + files.length + " file(s).";
+        indexStatus.className = "status-text status-success";
+      } catch (err) {
+        console.error(err);
+        indexStatus.textContent =
+          "Indexing failed. Check that your FastAPI server is running.";
+        indexStatus.className = "status-text status-error";
+      }
+    });
+
+    // ---- Ask question ----
+    const btnAsk = document.getElementById("btn-ask");
+    const qaResult = document.getElementById("qa-result");
+    const answerText = document.getElementById("answer-text");
+    const confidenceBadge = document.getElementById("confidence-badge");
+    const hallucinationBadge = document.getElementById("hallucination-badge");
+    const latencyLabel = document.getElementById("latency-label");
+    const hallucinationWarning = document.getElementById("hallucination-warning");
+    const citationList = document.getElementById("citation-list");
+    const usedQueryEl = document.getElementById("used-query");
+    const rewriteDetails = document.getElementById("rewrite-details");
+
+    function setConfidenceBadge(label, score) {
+      const lower = (label || "").toLowerCase();
+      let text = "Low";
+      let cls = "badge-low";
+      if (lower === "high") {
+        text = "High";
+        cls = "badge-high";
+      } else if (lower === "medium") {
+        text = "Medium";
+        cls = "badge-medium";
+      }
+      const safeScore = Number.isFinite(score) ? score : 0;
+      confidenceBadge.textContent = text + " (" + safeScore.toFixed(2) + ")";
+      confidenceBadge.className = "meta-badge " + cls;
+    }
+
+    btnAsk.addEventListener("click", async () => {
+      const question = document.getElementById("question-input").value.trim();
+      const answerStyle = document.getElementById("answer-style").value;
+      const k = parseInt(document.getElementById("k-input").value || "5", 10);
+      const rewriteQuery = document.getElementById("rewrite-checkbox").checked;
+
+      if (!question) {
+        alert("Please enter a question.");
+        return;
+      }
+
+      answerText.textContent = "Thinking…";
+      qaResult.classList.remove("hidden");
+      citationList.innerHTML = "";
+      hallucinationWarning.classList.add("hidden");
+
+      try {
+        const res = await fetch(API_BASE + "/api/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question,
+            answer_style: answerStyle,
+            rewrite_query: rewriteQuery,
+            k,
+          }),
+        });
+
+        if (!res.ok) throw new Error("HTTP " + res.status);
+
+        const data = await res.json();
+        const answer = data.answer || "No answer returned.";
+        answerText.textContent = answer;
+
+        const confLabel = data.confidence_label || "low";
+        const confScore = Number(data.confidence_score || 0);
+        setConfidenceBadge(confLabel, confScore);
+
+        const hallucFlag = !!data.hallucination_flag;
+        const hallucRisk = data.hallucination_risk || "unknown";
+        hallucinationBadge.textContent = hallucRisk;
+        hallucinationBadge.className =
+          "meta-badge " + (hallucFlag ? "badge-high" : "badge-medium");
+
+        if (hallucFlag) {
+          hallucinationWarning.classList.remove("hidden");
+        } else {
+          hallucinationWarning.classList.add("hidden");
+        }
+
+        const latencyMs = data.latency_ms || 0;
+        latencyLabel.textContent = latencyMs + " ms";
+
+        // Citations — horizontal cards with clean snippets
+        const citations = data.citations || [];
+        if (!citations.length) {
+          citationList.innerHTML =
+            "<div class='citation-empty'>No citations returned for this answer.</div>";
+        } else {
+          citationList.innerHTML = "";
+          citations.forEach((c) => {
+            const card = document.createElement("div");
+            card.className = "citation-card";
+
+            const header = document.createElement("div");
+            header.className = "citation-header";
+
+            const sim = Number(c.similarity ?? c.score ?? 0);
+            const rawSource = c.source || "";
+            const parts = rawSource.split("/");
+            const shortSource = parts[parts.length - 1] || rawSource;
+            const chunkLabel =
+              c.chunk_id !== undefined && c.chunk_id !== null
+                ? ` • chunk ${c.chunk_id}`
+                : "";
+            const simLabel = Number.isFinite(sim) ? ` • sim ${sim.toFixed(2)}` : "";
+
+            header.textContent = `${shortSource}${chunkLabel}${simLabel}`;
+
+            const body = document.createElement("div");
+            body.className = "citation-body";
+
+            let txt = (c.text || "").trim();
+            txt = txt.replace(/\\n/g, " ").replace(/\s+/g, " ");
+
+            const MAX_CHARS = 260;
+            if (txt.length > MAX_CHARS) {
+              txt = txt.slice(0, MAX_CHARS) + "…";
+            }
+
+            body.textContent = txt;
+
+            card.appendChild(header);
+            card.appendChild(body);
+            citationList.appendChild(card);
+          });
+        }
+
+        const usedQuery = data.used_query || "";
+        if (usedQuery) {
+          usedQueryEl.textContent = usedQuery;
+          rewriteDetails.classList.remove("hidden");
+        } else {
+          rewriteDetails.classList.add("hidden");
+        }
+      } catch (err) {
+        console.error(err);
+        answerText.textContent =
+          "Something went wrong. Check that the backend is running.";
+      }
+    });
+
+    // ---- Scenario analysis ----
+    const btnScenario = document.getElementById("btn-scenario");
+    const scenarioInput = document.getElementById("scenario-input");
+    const scenarioResult = document.getElementById("scenario-result");
+
+    btnScenario.addEventListener("click", async () => {
+      const scenario = scenarioInput.value.trim();
+      if (!scenario) {
+        alert("Please describe a scenario first.");
+        return;
+      }
+      scenarioResult.textContent = "Analyzing scenario…";
+
+      try {
+        const res = await fetch(API_BASE + "/api/scenario", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scenario }),
+        });
+
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        scenarioResult.textContent = data.analysis || data.answer || "";
+      } catch (err) {
+        console.error(err);
+        scenarioResult.textContent =
+          "Failed to analyze scenario. Ensure /api/scenario exists on the backend.";
+      }
+    });
+
+    // ---- Quiz generation ----
+    const btnQuiz = document.getElementById("btn-quiz");
+    const quizCount = document.getElementById("quiz-count");
+    const quizResult = document.getElementById("quiz-result");
+
+    btnQuiz.addEventListener("click", async () => {
+      const n = parseInt(quizCount.value || "4", 10);
+      quizResult.textContent = "Generating quiz…";
+
+      try {
+        const res = await fetch(API_BASE + "/api/quiz", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ num_questions: n }),
+        });
+
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        const items = data.quiz || data.items || data;
+
+        if (!Array.isArray(items) || !items.length) {
+          quizResult.textContent =
+            "No quiz questions returned. Check the backend implementation.";
+          return;
+        }
+
+        quizResult.innerHTML = "";
+        items.forEach((item, idx) => {
+          const qCard = document.createElement("div");
+          qCard.className = "quiz-question-card";
+
+          const qTitle = document.createElement("div");
+          qTitle.className = "quiz-question-title";
+          qTitle.textContent = "Q" + (idx + 1) + ". " + (item.question || "");
+          qCard.appendChild(qTitle);
+
+          const optionsWrap = document.createElement("div");
+          optionsWrap.className = "quiz-options-wrap";
+          const options = item.options || [];
+          const answer = item.answer || "";
+          let selected = null;
+
+          options.forEach((opt, optIdx) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "quiz-option-btn";
+            btn.dataset.option = opt;
+
+            const letter = String.fromCharCode(65 + optIdx);
+            btn.innerHTML =
+              "<span class='quiz-option-letter'>" +
+              letter +
+              ".</span> " +
+              opt;
+
+            btn.addEventListener("click", () => {
+              selected = opt;
+              Array.from(optionsWrap.children).forEach((b) =>
+                b.classList.remove("selected")
+              );
+              btn.classList.add("selected");
+            });
+
+            optionsWrap.appendChild(btn);
+          });
+
+          qCard.appendChild(optionsWrap);
+
+          const checkBtn = document.createElement("button");
+          checkBtn.type = "button";
+          checkBtn.className = "quiz-check-btn";
+          checkBtn.textContent = "Check Answer";
+
+          const feedback = document.createElement("div");
+          feedback.className = "quiz-feedback";
+
+          checkBtn.addEventListener("click", () => {
+            if (!selected) {
+              feedback.textContent = "Select an option first.";
+              feedback.className = "quiz-feedback quiz-feedback-warn";
+              return;
+            }
+            Array.from(optionsWrap.children).forEach((b) => {
+              b.classList.remove("correct", "incorrect");
+              if (b.dataset.option === answer) {
+                b.classList.add("correct");
+              } else if (b.dataset.option === selected) {
+                b.classList.add("incorrect");
+              }
+            });
+
+            if (selected === answer) {
+              feedback.textContent = "✅ Correct!";
+              feedback.className = "quiz-feedback quiz-feedback-ok";
+            } else {
+              feedback.textContent =
+                "❌ Not quite. Correct answer: " + answer;
+              feedback.className = "quiz-feedback quiz-feedback-bad";
+            }
+
+            if (item.explanation) {
+              feedback.textContent += " " + item.explanation;
+            }
+          });
+
+          qCard.appendChild(checkBtn);
+          qCard.appendChild(feedback);
+          quizResult.appendChild(qCard);
+        });
+      } catch (err) {
+        console.error(err);
+        quizResult.textContent =
+          "Failed to generate quiz. Ensure /api/quiz exists on the backend.";
+      }
+    });
+  </script>
+</body>
+</html>
+
