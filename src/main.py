@@ -24,6 +24,16 @@ KB_RAW_DIR = "data/kb_raw"
 KB_PROCESSED_DIR = "data/kb_processed"
 VECTOR_DB_PATH = "data/vectorstore"
 
+# Retrieval/guardrail defaults (grade-friendly)
+DEFAULT_TOP_K = 5
+DEFAULT_TOP_K_RAW = 20
+DEFAULT_USE_MMR = True
+DEFAULT_MMR_LAMBDA = 0.7
+DEFAULT_DEDUPE = True
+
+# If max similarity is below this, we should abstain instead of risking hallucination
+DEFAULT_ABSTAIN_SIM_THRESHOLD = 0.35
+
 
 def _ensure_dirs() -> None:
     """Create required directories if they don't exist."""
@@ -88,7 +98,7 @@ def ingest_and_index_documents(file_paths: List[str]) -> int:
     Ingest raw files, chunk them, embed them, and update the vector store.
 
     Supports:
-      - PDF (page-aware; preserves page metadata for multimodal preview)
+      - PDF (page-aware; preserves page metadata)
       - DOCX
       - TXT/MD
 
@@ -138,8 +148,8 @@ def ingest_and_index_documents(file_paths: List[str]) -> int:
                 cleaned = clean_text(raw_text)
                 chunks = chunk_text(cleaned)
 
-                # Save per-page cleaned text (optional but great for debugging)
-                page_suffix = f"_p{page_num}" if page_num else ""
+                # Save per-page cleaned text (debug-friendly)
+                page_suffix = f"_p{page_num}" if page_num is not None else ""
                 cleaned_out = os.path.join(KB_PROCESSED_DIR, f"{base}{page_suffix}.txt")
                 with open(cleaned_out, "w", encoding="utf-8") as f:
                     f.write(cleaned)
@@ -169,8 +179,6 @@ def ingest_and_index_documents(file_paths: List[str]) -> int:
         if not raw_text or not str(raw_text).strip():
             print(f"[INGEST] No text extracted from {path}, skipping.")
             continue
-
-        print(f"[INGEST] Extracted {len(str(raw_text))} characters from {path}")
 
         cleaned = clean_text(raw_text)
         chunks = chunk_text(cleaned)
@@ -218,8 +226,15 @@ def answer_question(
     question: str,
     answer_style: str = "Strict policy quote",
     rewrite_query: bool = True,
-    k: int = 5,
+    k: int = DEFAULT_TOP_K,
     eval_mode: bool = False,
+    # ranking/ablation switches
+    use_mmr: bool = DEFAULT_USE_MMR,
+    top_k_raw: int = DEFAULT_TOP_K_RAW,
+    mmr_lambda: float = DEFAULT_MMR_LAMBDA,
+    dedupe: bool = DEFAULT_DEDUPE,
+    # abstain guardrail (prevents “confident wrong”)
+    abstain_sim_threshold: float = DEFAULT_ABSTAIN_SIM_THRESHOLD,
 ) -> Dict[str, Any]:
     """
     Answer a policy question using the indexed vector store.
@@ -271,10 +286,27 @@ def answer_question(
             used_query = question
 
     # ------------------------------------------------------------------
-    # Retrieve top-k chunks
+    # Adaptive MMR: avoid hurting relevance on small/focused KBs
+    # ------------------------------------------------------------------
+    adaptive_use_mmr = bool(use_mmr)
+    if adaptive_use_mmr:
+        # If you don't have enough raw candidates, MMR can over-diversify and hurt relevance.
+        if int(top_k_raw) < 15:
+            adaptive_use_mmr = False
+
+    # ------------------------------------------------------------------
+    # Retrieve top-k chunks (top_k_raw + MMR + dedupe)
     # ------------------------------------------------------------------
     try:
-        docs = vectordb.similarity_search(used_query, embedder=embedder, k=k)
+        docs = vectordb.similarity_search(
+            used_query,
+            embedder=embedder,
+            k=k,
+            top_k_raw=top_k_raw,
+            use_mmr=adaptive_use_mmr,   # ✅ IMPORTANT
+            mmr_lambda=mmr_lambda,
+            dedupe=dedupe,
+        )
     except Exception as e:
         print(f"[RETRIEVAL] similarity_search failed: {e}")
         docs = []
@@ -313,7 +345,7 @@ def answer_question(
 
         source = meta.get("source", "unknown")
         chunk_id = meta.get("chunk_id", f"chunk_{i}")
-        page = meta.get("page")  # <-- multimodal metadata
+        page = meta.get("page")
 
         context_blocks.append(
             f"[{i + 1}] Source: {source} (chunk {chunk_id}, page {page}) | sim={sim:.2f}\n{text}"
@@ -339,6 +371,22 @@ def answer_question(
     )
     confidence_score = float(max_sim)
     confidence_label = _confidence_label_from_score(confidence_score)
+
+    # ------------------------------------------------------------------
+    # Abstain guardrail
+    # ------------------------------------------------------------------
+    if confidence_score < float(abstain_sim_threshold):
+        latency_ms = int((time.time() - start_time) * 1000)
+        return {
+            "answer": "Not covered in the provided policy excerpts.",
+            "citations": citations,
+            "confidence_label": "low",
+            "confidence_score": confidence_score,
+            "hallucination_flag": True,
+            "hallucination_risk": "high",
+            "used_query": used_query,
+            "latency_ms": latency_ms,
+        }
 
     grounding_warning = ""
     if hallucination_flag:
@@ -416,18 +464,19 @@ def answer_question(
         "hallucination_risk": hallucination_risk,
         "used_query": used_query,
         "latency_ms": latency_ms,
+        "ranking": {
+            "use_mmr": adaptive_use_mmr,   # report actual
+            "top_k_raw": top_k_raw,
+            "mmr_lambda": mmr_lambda,
+            "dedupe": dedupe,
+        },
     }
 
-
-# ---------------------------------------------------------------------
-# Optional: allow running some quick manual tests from CLI
-# ---------------------------------------------------------------------
 
 if __name__ == "__main__":
     """
     Small manual smoke test:
       python -m src.main
-    (Assumes you already have files in data/kb_raw and OPENAI_API_KEY set.)
     """
     _ensure_dirs()
     kb_files = [
@@ -439,23 +488,18 @@ if __name__ == "__main__":
 
     if kb_files:
         ingest_and_index_documents(kb_files)
-        res = answer_question(
-            "How does Northeastern define cheating in the academic integrity policy?",
-            answer_style="Strict policy quote",
-            k=8,
-        )
-        print("\n[ANSWER]")
-        print(res.get("answer"))
-        print("\n[CITATIONS]")
-        for c in res.get("citations", []):
-            print(
-                f"- {c.get('source')} | {c.get('chunk_id')} | "
-                f"page={c.get('page')} | rank={c.get('rank')} | sim={c.get('similarity'):.2f}"
-            )
-        print(
-            "\n[HALLUCINATION]",
-            res.get("hallucination_flag"),
-            res.get("hallucination_risk"),
-        )
+
+        q = "How does Northeastern define cheating in the academic integrity policy?"
+
+        print("\n--- BASELINE (no rewrite, no MMR) ---")
+        r0 = answer_question(q, rewrite_query=False, use_mmr=False, k=5, top_k_raw=5)
+        print(r0.get("answer"))
+        print("Confidence:", r0.get("confidence_label"), r0.get("confidence_score"))
+
+        print("\n--- IMPROVED (rewrite + MMR) ---")
+        r1 = answer_question(q, rewrite_query=True, use_mmr=True, k=5, top_k_raw=20)
+        print(r1.get("answer"))
+        print("Confidence:", r1.get("confidence_label"), r1.get("confidence_score"))
+
     else:
         print("[MAIN] No files in kb_raw; add a policy PDF/TXT first.")

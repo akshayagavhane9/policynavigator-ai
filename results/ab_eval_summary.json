@@ -1,0 +1,31 @@
+{
+  "timestamp": "2025-12-13T20:43:04.675153+00:00",
+  "questions": [
+    "How does Northeastern define cheating in the academic integrity policy?",
+    "What happens after an academic integrity violation is reported?",
+    "What are examples of plagiarism mentioned in the policy?",
+    "What is the general appeal process mentioned in the policy?",
+    "Are students allowed to collaborate on assignments, and under what conditions?"
+  ],
+  "baseline": {
+    "n": 5.0,
+    "avg_max_similarity": 0.5944228708744049,
+    "avg_latency_ms": 2122.6,
+    "hallucination_rate": 0.2,
+    "avg_citations_count": 1.8,
+    "evidence_ok_rate": 1.0
+  },
+  "improved": {
+    "n": 5.0,
+    "avg_max_similarity": 0.584809947013855,
+    "avg_latency_ms": 1779.4,
+    "hallucination_rate": 0.4,
+    "avg_citations_count": 1.0,
+    "evidence_ok_rate": 1.0
+  },
+  "notes": {
+    "baseline_config": "rewrite_query=False, use_mmr=False, top_k_raw=5, k=5",
+    "improved_config": "rewrite_query=True, use_mmr=True, top_k_raw=20, k=5",
+    "evidence_ok_definition": "max_similarity>=0.35 and citations_count>0"
+  }
+}

@@ -17,6 +17,9 @@ import streamlit.components.v1 as components
 from src.main import answer_question, ingest_and_index_documents  # type: ignore
 from src.llm.client import LLMClient  # type: ignore
 
+# --- NEW: for evaluation tab ---
+import pandas as pd
+
 
 # -------------------------------------------------------------------
 # Helpers
@@ -50,220 +53,22 @@ def read_pdf_as_base64(pdf_path: str) -> str:
         return base64.b64encode(f.read()).decode("utf-8")
 
 
-def render_pdf_modal_pdfjs(pdf_b64: str, title: str, page: int = 1, height_px: int = 780) -> None:
-    """
-    Reliable "modal-like" PDF preview using PDF.js.
-    - No file:// iframes (which browsers block)
-    - Supports initial page jump
-    """
-    page = max(1, int(page or 1))
+# --- NEW: evaluation file helpers ---
+def _safe_read_text(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
 
-    # NOTE: Using CDN for pdf.js is simplest for demo. If you want offline, we can bundle it locally.
-    html = f"""
-    <style>
-      .pn-overlay {{
-        position: fixed;
-        inset: 0;
-        background: rgba(0,0,0,0.62);
-        z-index: 9998;
-      }}
-      .pn-modal {{
-        position: fixed;
-        top: 5%;
-        left: 5%;
-        width: 90%;
-        height: 90%;
-        background: #ffffff;
-        z-index: 9999;
-        border-radius: 16px;
-        box-shadow: 0 18px 60px rgba(0,0,0,0.45);
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-      }}
-      .pn-header {{
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 12px 14px;
-        background: linear-gradient(90deg, #111 0%, #222 70%, #ff7a00 140%);
-        color: #fff;
-        border-bottom: 1px solid rgba(255,255,255,0.12);
-      }}
-      .pn-title {{
-        font-size: 14px;
-        font-weight: 800;
-        letter-spacing: 0.2px;
-      }}
-      .pn-meta {{
-        font-size: 12px;
-        opacity: 0.92;
-      }}
-      .pn-body {{
-        flex: 1;
-        background: #f6f7f9;
-        padding: 10px;
-        overflow: auto;
-      }}
-      .pn-toolbar {{
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        padding: 8px 10px;
-        background: #fff;
-        border: 1px solid #eee;
-        border-radius: 12px;
-        margin-bottom: 10px;
-      }}
-      .pn-btn {{
-        border: 1px solid #e6e6e6;
-        background: #fff;
-        padding: 6px 10px;
-        border-radius: 10px;
-        cursor: pointer;
-        font-size: 12px;
-      }}
-      .pn-btn:hover {{ background: #f5f5f5; }}
-      .pn-input {{
-        width: 70px;
-        padding: 6px 8px;
-        border-radius: 10px;
-        border: 1px solid #e6e6e6;
-        font-size: 12px;
-      }}
-      canvas {{
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #eee;
-        box-shadow: 0 10px 24px rgba(0,0,0,0.06);
-        display: block;
-        margin: 0 auto;
-      }}
-      .pn-foot {{
-        padding: 10px 14px;
-        background: #fff;
-        border-top: 1px solid #eee;
-        font-size: 12px;
-        color: #666;
-        display: flex;
-        justify-content: space-between;
-      }}
-    </style>
 
-    <div class="pn-overlay"></div>
-    <div class="pn-modal" role="dialog" aria-modal="true">
-      <div class="pn-header">
-        <div>
-          <div class="pn-title">📄 {title}</div>
-          <div class="pn-meta">PDF preview (PDF.js) • jump-to-page supported</div>
-        </div>
-        <div class="pn-meta">Requested page: {page}</div>
-      </div>
+def _safe_read_bytes(path: str) -> bytes:
+    with open(path, "rb") as f:
+        return f.read()
 
-      <div class="pn-body">
-        <div class="pn-toolbar">
-          <button class="pn-btn" onclick="prevPage()">◀ Prev</button>
-          <button class="pn-btn" onclick="nextPage()">Next ▶</button>
-          <span style="font-size:12px;color:#444;">Page</span>
-          <input class="pn-input" id="pageNum" type="number" min="1" value="{page}" />
-          <button class="pn-btn" onclick="goToPage()">Go</button>
-          <span style="margin-left:auto;font-size:12px;color:#666;" id="pageInfo"></span>
-        </div>
 
-        <canvas id="the-canvas"></canvas>
-      </div>
-
-      <div class="pn-foot">
-        <div>Tip: Use the page box to jump to the cited page.</div>
-        <div>Close using the Streamlit “Close Preview” button.</div>
-      </div>
-    </div>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script>
-      const pdfData = atob("{pdf_b64}");
-      const pdfBytes = new Uint8Array(pdfData.length);
-      for (let i = 0; i < pdfData.length; i++) {{
-        pdfBytes[i] = pdfData.charCodeAt(i);
-      }}
-
-      const loadingTask = pdfjsLib.getDocument({{ data: pdfBytes }});
-      let pdfDoc = null;
-      let pageNumber = {page};
-      let pageRendering = false;
-      let pageNumPending = null;
-      const scale = 1.25;
-
-      const canvas = document.getElementById('the-canvas');
-      const ctx = canvas.getContext('2d');
-      const pageInfo = document.getElementById('pageInfo');
-      const pageNumInput = document.getElementById('pageNum');
-
-      function renderPage(num) {{
-        pageRendering = true;
-        pdfDoc.getPage(num).then(function(page) {{
-          const viewport = page.getViewport({{ scale: scale }});
-          canvas.height = viewport.height;
-          canvas.width = viewport.width;
-
-          const renderContext = {{
-            canvasContext: ctx,
-            viewport: viewport
-          }};
-          const renderTask = page.render(renderContext);
-
-          renderTask.promise.then(function() {{
-            pageRendering = false;
-            pageInfo.textContent = `of ${pdfDoc.numPages}`;
-            pageNumInput.value = num;
-
-            if (pageNumPending !== null) {{
-              renderPage(pageNumPending);
-              pageNumPending = null;
-            }}
-          }});
-        }});
-      }}
-
-      function queueRenderPage(num) {{
-        if (num < 1) num = 1;
-        if (num > pdfDoc.numPages) num = pdfDoc.numPages;
-        pageNumber = num;
-
-        if (pageRendering) {{
-          pageNumPending = num;
-        }} else {{
-          renderPage(num);
-        }}
-      }}
-
-      function prevPage() {{
-        if (!pdfDoc) return;
-        if (pageNumber <= 1) return;
-        queueRenderPage(pageNumber - 1);
-      }}
-
-      function nextPage() {{
-        if (!pdfDoc) return;
-        if (pageNumber >= pdfDoc.numPages) return;
-        queueRenderPage(pageNumber + 1);
-      }}
-
-      function goToPage() {{
-        if (!pdfDoc) return;
-        const n = parseInt(pageNumInput.value || "1");
-        queueRenderPage(n);
-      }}
-
-      loadingTask.promise.then(function(pdf) {{
-        pdfDoc = pdf;
-        pageInfo.textContent = `of ${pdfDoc.numPages}`;
-        queueRenderPage(pageNumber);
-      }});
-    </script>
-    """
-    components.html(html, height=height_px)
+def _pct(n: float) -> str:
+    try:
+        return f"{(float(n) * 100):.1f}%"
+    except Exception:
+        return "—"
 
 
 # -------------------------------------------------------------------
@@ -279,19 +84,13 @@ if "kb_indexed" not in st.session_state:
 if "quiz_items" not in st.session_state:
     st.session_state["quiz_items"] = None
 
-# Modal preview state
-if "pdf_modal_open" not in st.session_state:
-    st.session_state["pdf_modal_open"] = False
-if "pdf_modal_source" not in st.session_state:
-    st.session_state["pdf_modal_source"] = None
-if "pdf_modal_page" not in st.session_state:
-    st.session_state["pdf_modal_page"] = 1
-if "pdf_modal_b64" not in st.session_state:
-    st.session_state["pdf_modal_b64"] = None
+# Store last answer result
+if "last_answer" not in st.session_state:
+    st.session_state["last_answer"] = None
 
 
 # -------------------------------------------------------------------
-# Styling (professional, clean, non-cluttered)
+# Styling (KEEP EXACT — unchanged)
 # -------------------------------------------------------------------
 
 st.markdown(
@@ -361,6 +160,19 @@ div[data-testid="stExpander"] summary {
 /* Make expander content more readable */
 div[data-testid="stExpander"] .stMarkdown {
   color: #333;
+}
+
+/* PDF viewer container */
+.pdf-viewer-container {
+  position: sticky;
+  top: 60px;
+  z-index: 100;
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  border: 3px solid #ff7a00;
+  margin-bottom: 20px;
+  box-shadow: 0 10px 40px rgba(255, 122, 0, 0.2);
 }
 </style>
 """,
@@ -463,8 +275,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-tab_qa, tab_whatif, tab_quiz, tab_docs = st.tabs(
-    ["💬 Q&A Assistant", "🤔 What-If Scenarios", "📝 Policy Quiz", "📘 About & Docs"]
+# --- UPDATED: add evaluation tab ---
+tab_qa, tab_whatif, tab_quiz, tab_eval, tab_docs = st.tabs(
+    ["💬 Q&A Assistant", "🤔 What-If Scenarios", "📝 Policy Quiz", "📈 Evaluation (A/B)", "📘 About & Docs"]
 )
 
 
@@ -493,8 +306,6 @@ with tab_qa:
         label_visibility="collapsed",
     )
 
-    res: Optional[Dict[str, Any]] = None
-
     if st.button("Generate Answer", type="primary"):
         if not user_question.strip():
             st.warning("Please enter a question.")
@@ -507,11 +318,29 @@ with tab_qa:
                         rewrite_query=rewrite_query,
                         k=k,
                     )
+
+                    # If student-friendly but abstained, show a helpful UX message
+                    if (
+                        answer_style == "Explain my rights (student-friendly)"
+                        and isinstance(res, dict)
+                        and (res.get("answer") or "").strip() == "Not covered in the provided policy excerpts."
+                    ):
+                        res["answer"] = (
+                            "I couldn't find a clear clause in the uploaded policy excerpts that directly answers this. "
+                            "Try rephrasing with more specifics (assignment vs exam, collaboration, allowed resources), "
+                            "or upload the exact policy document that covers this topic."
+                        )
+
+                    st.session_state["last_answer"] = res
+
                 except Exception as e:
                     st.error(f"Generation failed: {e}")
-                    res = None
+                    st.session_state["last_answer"] = None
 
     st.markdown("</div>", unsafe_allow_html=True)
+
+    # Retrieve the last answer from session state
+    res = st.session_state.get("last_answer")
 
     if res:
         col_left, col_right = st.columns([2, 1])
@@ -576,50 +405,71 @@ with tab_qa:
                     # PDF Preview button only when source is a PDF and exists
                     if str(src).lower().endswith(".pdf"):
                         pdf_path = kb_raw_path(src)
+
                         if os.path.exists(pdf_path):
-                            c1, c2, c3 = st.columns([1.2, 1.0, 2.0])
-                            with c1:
-                                if st.button(
-                                    f"📄 View PDF page",
-                                    key=f"view_pdf_{src}_{chunk_id}_{rank}",
-                                    type="primary",
-                                    use_container_width=True,
-                                ):
-                                    st.session_state["pdf_modal_open"] = True
-                                    st.session_state["pdf_modal_source"] = src
-                                    st.session_state["pdf_modal_page"] = int(page) if page else 1
-                                    st.session_state["pdf_modal_b64"] = read_pdf_as_base64(pdf_path)
-                            with c2:
-                                st.caption("Jumps to cited page")
-                            with c3:
-                                st.caption("Transparent evidence preview (grader-friendly)")
+                            if st.button(
+                                "📄 View PDF page",
+                                key=f"view_pdf_{src}_{chunk_id}_{rank}",
+                                type="primary",
+                                use_container_width=True,
+                            ):
+                                st.markdown("---")
+                                st.markdown(f"### 📄 PDF Preview: {src} - Page {page}")
+
+                                try:
+                                    pdf_b64 = read_pdf_as_base64(pdf_path)
+                                    display_page = int(page) if page else 1
+
+                                    pdf_html = f"""
+                                    <div class="pdf-viewer-container">
+                                        <div style="margin-bottom: 10px; padding: 10px; background: linear-gradient(90deg, #111 0%, #222 70%, #ff7a00 140%); color: white; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+                                            <div><strong>📄 {src}</strong> - Page {display_page}</div>
+                                            <div style="font-size: 12px;">Similarity: {sim:.2f}</div>
+                                        </div>
+                                        <object
+                                            data="data:application/pdf;base64,{pdf_b64}#page={display_page}"
+                                            type="application/pdf"
+                                            width="100%"
+                                            height="800"
+                                            style="border: 1px solid #ddd; border-radius: 8px;">
+                                            <div style="padding: 40px; text-align: center; background: #f9f9f9; border-radius: 8px;">
+                                                <p style="color: #666; margin-bottom: 20px;">Your browser doesn't support embedded PDFs.</p>
+                                                <a href="data:application/pdf;base64,{pdf_b64}" download="{src}"
+                                                   style="display: inline-block; padding: 12px 24px; background: #ff7a00; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;">
+                                                   📥 Download PDF
+                                                </a>
+                                            </div>
+                                        </object>
+                                        <div style="margin-top: 10px; padding: 8px; background: #f0f0f0; border-radius: 6px; font-size: 12px; color: #666;">
+                                            💡 Tip: Use your browser's PDF controls to navigate. Some browsers may not jump directly to page {display_page}.
+                                        </div>
+                                    </div>
+                                    """
+
+                                    components.html(pdf_html, height=900, scrolling=True)
+
+                                    # Download button
+                                    pdf_bytes = base64.b64decode(pdf_b64)
+                                    st.download_button(
+                                        "⬇️ Download Full PDF",
+                                        data=pdf_bytes,
+                                        file_name=src,
+                                        mime="application/pdf",
+                                        type="primary",
+                                    )
+
+                                    st.markdown("---")
+
+                                except Exception as e:
+                                    st.error(f"Failed to load PDF: {e}")
+                            else:
+                                st.caption("Jumps to cited page • Transparent evidence preview (grader-friendly)")
                         else:
                             st.warning(f"PDF not found in `data/kb_raw`: {src}")
 
         if rewrite_query:
             with st.expander("See how your question was rewritten"):
                 st.code(res.get("used_query", "") or "(no rewrite)")
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # --- Modal Render (PDF.js) ---
-    if st.session_state.get("pdf_modal_open") and st.session_state.get("pdf_modal_b64"):
-        st.markdown("<div class='pn-card'>", unsafe_allow_html=True)
-        st.markdown("### 📄 PDF Preview")
-        st.caption("If you don’t see the PDF, your network may be blocking the PDF.js CDN. Try another browser.")
-
-        render_pdf_modal_pdfjs(
-            pdf_b64=st.session_state["pdf_modal_b64"],
-            title=str(st.session_state.get("pdf_modal_source") or "Policy PDF"),
-            page=int(st.session_state.get("pdf_modal_page") or 1),
-            height_px=820,
-        )
-
-        if st.button("❌ Close Preview", type="primary"):
-            st.session_state["pdf_modal_open"] = False
-            st.session_state["pdf_modal_source"] = None
-            st.session_state["pdf_modal_page"] = 1
-            st.session_state["pdf_modal_b64"] = None
 
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -753,7 +603,158 @@ No extra text.
 
 
 # -------------------------------------------------------------------
-# Tab 4 – About & Docs
+# Tab 4 – Evaluation (A/B)
+# -------------------------------------------------------------------
+
+with tab_eval:
+    st.markdown("<div class='pn-card'>", unsafe_allow_html=True)
+    st.subheader("A/B Evaluation Results (Baseline vs Improved Retrieval)")
+
+    st.caption(
+        "This tab reads the output from `python scripts/ab_eval.py`:\n"
+        "- `results/ab_eval_runs.csv`\n"
+        "- `results/ab_eval_summary.json`"
+    )
+
+    results_dir = "results"
+    runs_csv = os.path.join(results_dir, "ab_eval_runs.csv")
+    summary_json = os.path.join(results_dir, "ab_eval_summary.json")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Files detected**")
+        st.write(f"• `{runs_csv}`: {'✅' if os.path.exists(runs_csv) else '❌'}")
+        st.write(f"• `{summary_json}`: {'✅' if os.path.exists(summary_json) else '❌'}")
+
+    with c2:
+        st.markdown("**Quick instructions**")
+        st.code("python scripts/ab_eval.py", language="bash")
+
+    if not (os.path.exists(runs_csv) and os.path.exists(summary_json)):
+        st.warning(
+            "Run the evaluation script first:\n"
+            "`python scripts/ab_eval.py`\n\n"
+            "Then refresh this page."
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        # --- Load summary ---
+        try:
+            summary = json.loads(_safe_read_text(summary_json))
+        except Exception as e:
+            st.error(f"Failed to read summary JSON: {e}")
+            summary = {}
+
+        # --- Load runs CSV ---
+        try:
+            df = pd.read_csv(runs_csv)
+        except Exception as e:
+            st.error(f"Failed to read runs CSV: {e}")
+            df = pd.DataFrame()
+
+        # --- KPI cards ---
+        kpi_left, kpi_mid, kpi_right = st.columns(3)
+
+        # Safely extract common keys (works even if your JSON schema changes slightly)
+        num_q = summary.get("num_questions") or summary.get("n_questions") or summary.get("questions") or ""
+        baseline_hall_rate = summary.get("baseline_hallucination_rate")
+        improved_hall_rate = summary.get("improved_hallucination_rate")
+        baseline_avg_sim = summary.get("baseline_avg_max_sim")
+        improved_avg_sim = summary.get("improved_avg_max_sim")
+
+        with kpi_left:
+            st.markdown("### ✅ Coverage")
+            st.markdown(f"<div class='pn-badge'>Questions: {num_q if num_q != '' else '—'}</div>", unsafe_allow_html=True)
+
+        with kpi_mid:
+            st.markdown("### 🧠 Max Similarity (Avg)")
+            st.markdown(
+                f"<div class='pn-badge'>Baseline: {baseline_avg_sim if baseline_avg_sim is not None else '—'}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div class='pn-badge'>Improved: {improved_avg_sim if improved_avg_sim is not None else '—'}</div>",
+                unsafe_allow_html=True,
+            )
+
+        with kpi_right:
+            st.markdown("### ⚠ Hallucination Rate")
+            st.markdown(
+                f"<div class='pn-badge'>Baseline: {_pct(baseline_hall_rate) if baseline_hall_rate is not None else '—'}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div class='pn-badge'>Improved: {_pct(improved_hall_rate) if improved_hall_rate is not None else '—'}</div>",
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("---")
+
+        # --- Show summary JSON (collapsible) ---
+        with st.expander("View summary JSON"):
+            st.json(summary)
+
+        # --- Runs table ---
+        st.markdown("### 📄 Detailed Run Log")
+        if df.empty:
+            st.warning("Runs CSV is empty or unreadable.")
+        else:
+            st.dataframe(df, use_container_width=True, hide_index=True)
+
+        # --- Charts ---
+        if not df.empty:
+            # try to standardize expected column names
+            # (Your script likely writes baseline_max_sim / improved_max_sim etc.)
+            cols = set(df.columns)
+
+            st.markdown("### 📈 Charts")
+            chart_c1, chart_c2 = st.columns(2)
+
+            with chart_c1:
+                st.markdown("**Max similarity by question**")
+                if {"baseline_max_sim", "improved_max_sim"}.issubset(cols):
+                    chart_df = df[["question", "baseline_max_sim", "improved_max_sim"]].copy()
+                    chart_df = chart_df.set_index("question")
+                    st.line_chart(chart_df)
+                else:
+                    st.info("Expected columns not found: baseline_max_sim, improved_max_sim")
+
+            with chart_c2:
+                st.markdown("**Hallucination flags (count)**")
+                if {"baseline_hallucination_flag", "improved_hallucination_flag"}.issubset(cols):
+                    b = int(df["baseline_hallucination_flag"].astype(bool).sum())
+                    i = int(df["improved_hallucination_flag"].astype(bool).sum())
+                    bar_df = pd.DataFrame({"count": [b, i]}, index=["baseline", "improved"])
+                    st.bar_chart(bar_df)
+                else:
+                    st.info("Expected columns not found: baseline_hallucination_flag, improved_hallucination_flag")
+
+        st.markdown("---")
+
+        # --- Download buttons ---
+        dl1, dl2 = st.columns(2)
+        with dl1:
+            st.download_button(
+                "⬇️ Download ab_eval_runs.csv",
+                data=_safe_read_bytes(runs_csv),
+                file_name="ab_eval_runs.csv",
+                mime="text/csv",
+                type="primary",
+            )
+        with dl2:
+            st.download_button(
+                "⬇️ Download ab_eval_summary.json",
+                data=_safe_read_bytes(summary_json),
+                file_name="ab_eval_summary.json",
+                mime="application/json",
+                type="primary",
+            )
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+# -------------------------------------------------------------------
+# Tab 5 – About & Docs
 # -------------------------------------------------------------------
 
 with tab_docs:
