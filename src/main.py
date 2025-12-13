@@ -1,6 +1,8 @@
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
+
+from dotenv import load_dotenv
 
 from src.rag.loaders.pdf_loader import load_pdf
 from src.rag.loaders.docx_loader import load_docx
@@ -11,11 +13,13 @@ from src.rag.embeddings.embedder import Embedder
 from src.rag.vectorstore.vector_db import VectorDB
 from src.llm.client import LLMClient
 
+# Load environment variables from .env file
+load_dotenv()
+
 # ---------------------------------------------------------------------
 # Paths / constants
 # ---------------------------------------------------------------------
 
-# We keep paths relative to the project root (where you run streamlit).
 KB_RAW_DIR = "data/kb_raw"
 KB_PROCESSED_DIR = "data/kb_processed"
 VECTOR_DB_PATH = "data/vectorstore"
@@ -81,9 +85,12 @@ def _detect_hallucination(
 
 def ingest_and_index_documents(file_paths: List[str]) -> int:
     """
-    Ingest the given raw files, chunk them, embed them, and update the vector store.
+    Ingest raw files, chunk them, embed them, and update the vector store.
 
-    Called from the Streamlit sidebar when you click "Index Documents".
+    Supports:
+      - PDF (page-aware; preserves page metadata for multimodal preview)
+      - DOCX
+      - TXT/MD
 
     Args:
         file_paths: list of paths inside data/kb_raw/
@@ -106,11 +113,52 @@ def ingest_and_index_documents(file_paths: List[str]) -> int:
         ext = os.path.splitext(path)[1].lower()
         print(f"[INGEST] Processing {path} (ext={ext})")
 
-        # ----------------- loading -----------------
+        # ----------------- PDF: page-aware ingestion -----------------
+        if ext == ".pdf":
+            try:
+                page_docs = load_pdf(path)  # List[{"text":..., "metadata":{page,...}}]
+            except Exception as e:
+                print(f"[INGEST] Failed to load PDF {path}: {e}")
+                continue
+
+            if not page_docs:
+                print(f"[INGEST] No pages extracted from {path}, skipping.")
+                continue
+
+            base = os.path.splitext(os.path.basename(path))[0]
+
+            for page_doc in page_docs:
+                raw_text = page_doc.get("text", "")
+                meta = page_doc.get("metadata", {}) or {}
+                page_num: Optional[int] = meta.get("page")
+
+                if not raw_text or not str(raw_text).strip():
+                    continue
+
+                cleaned = clean_text(raw_text)
+                chunks = chunk_text(cleaned)
+
+                # Save per-page cleaned text (optional but great for debugging)
+                page_suffix = f"_p{page_num}" if page_num else ""
+                cleaned_out = os.path.join(KB_PROCESSED_DIR, f"{base}{page_suffix}.txt")
+                with open(cleaned_out, "w", encoding="utf-8") as f:
+                    f.write(cleaned)
+
+                for i, ch in enumerate(chunks):
+                    all_chunks.append(
+                        {
+                            "id": f"{base}{page_suffix}_{i}",
+                            "text": ch,
+                            "source": os.path.basename(path),
+                            "page": page_num,
+                        }
+                    )
+
+            continue  # move to next file
+
+        # ----------------- DOCX / TXT / MD: single-doc ingestion -----------------
         try:
-            if ext == ".pdf":
-                raw_text = load_pdf(path)
-            elif ext == ".docx":
+            if ext == ".docx":
                 raw_text = load_docx(path)
             else:
                 raw_text = load_text(path)
@@ -124,7 +172,6 @@ def ingest_and_index_documents(file_paths: List[str]) -> int:
 
         print(f"[INGEST] Extracted {len(str(raw_text))} characters from {path}")
 
-        # ----------------- cleaning & chunking -----------------
         cleaned = clean_text(raw_text)
         chunks = chunk_text(cleaned)
         print(f"[INGEST] Created {len(chunks)} chunks from {path}")
@@ -140,6 +187,7 @@ def ingest_and_index_documents(file_paths: List[str]) -> int:
                     "id": f"{base}_{i}",
                     "text": ch,
                     "source": os.path.basename(path),
+                    "page": None,
                 }
             )
 
@@ -149,7 +197,10 @@ def ingest_and_index_documents(file_paths: List[str]) -> int:
 
     # ----------------- embeddings & vector store -----------------
     texts = [c["text"] for c in all_chunks]
-    metadatas = [{"source": c["source"], "chunk_id": c["id"]} for c in all_chunks]
+    metadatas = [
+        {"source": c["source"], "chunk_id": c["id"], "page": c.get("page")}
+        for c in all_chunks
+    ]
 
     vectordb.add_texts(texts=texts, metadatas=metadatas, embedder=embedder)
     vectordb.persist()
@@ -168,21 +219,14 @@ def answer_question(
     answer_style: str = "Strict policy quote",
     rewrite_query: bool = True,
     k: int = 5,
+    eval_mode: bool = False,
 ) -> Dict[str, Any]:
     """
     Answer a policy question using the indexed vector store.
 
-    This is what the Streamlit UI calls when you click "Generate Answer".
-
-    Returns a dict that ALWAYS has at least:
-        - "answer": str
-        - "citations": List[Dict[str, Any]] (each with source, chunk_id, rank, similarity, text)
-        - "confidence_label": "high" | "medium" | "low"
-        - "confidence_score": float in [0,1]
-        - "hallucination_flag": bool
-        - "hallucination_risk": "low" | "medium" | "high"
-        - "used_query": str
-        - "latency_ms": int
+    Returns dict with:
+      - answer, citations, confidence_label, confidence_score,
+        hallucination_flag, hallucination_risk, used_query, latency_ms
     """
     start_time = time.time()
     question = (question or "").strip()
@@ -230,8 +274,6 @@ def answer_question(
     # Retrieve top-k chunks
     # ------------------------------------------------------------------
     try:
-        # Expected to return a list of dicts like:
-        # {"text": str, "metadata": {...}, "score": float}
         docs = vectordb.similarity_search(used_query, embedder=embedder, k=k)
     except Exception as e:
         print(f"[RETRIEVAL] similarity_search failed: {e}")
@@ -261,7 +303,6 @@ def answer_question(
         text = doc.get("text", "")
         meta = doc.get("metadata", {}) or {}
 
-        # Try to read similarity/score from doc or metadata; fallback to 0.0
         score = doc.get("score", meta.get("score", 0.0))
         try:
             sim = float(score)
@@ -272,14 +313,16 @@ def answer_question(
 
         source = meta.get("source", "unknown")
         chunk_id = meta.get("chunk_id", f"chunk_{i}")
+        page = meta.get("page")  # <-- multimodal metadata
 
         context_blocks.append(
-            f"[{i + 1}] Source: {source} (chunk {chunk_id}) | sim={sim:.2f}\n{text}"
+            f"[{i + 1}] Source: {source} (chunk {chunk_id}, page {page}) | sim={sim:.2f}\n{text}"
         )
         citations.append(
             {
                 "source": source,
                 "chunk_id": chunk_id,
+                "page": page,
                 "rank": i + 1,
                 "similarity": sim,
                 "text": text,
@@ -297,7 +340,6 @@ def answer_question(
     confidence_score = float(max_sim)
     confidence_label = _confidence_label_from_score(confidence_score)
 
-    # If hallucination_flag is True, warn the LLM in the prompt
     grounding_warning = ""
     if hallucination_flag:
         grounding_warning = (
@@ -309,18 +351,29 @@ def answer_question(
     # ------------------------------------------------------------------
     # Style instructions
     # ------------------------------------------------------------------
-    if answer_style.lower().startswith("strict"):
+    if eval_mode:
         style_instruction = (
-            "Answer ONLY using direct information from the context. "
-            "Quote or closely paraphrase relevant sentences. "
-            "If the answer is not present, say you cannot answer based on the provided policy text."
+            "EVALUATION MODE:\n"
+            "- Answer in AT MOST 2 sentences.\n"
+            "- Use only information explicitly present in the context.\n"
+            "- Prefer quoting one short clause if possible.\n"
+            "- Do not add extra explanation, examples, or advice.\n"
+            "- If the context does not answer the question, reply exactly: "
+            "\"Not covered in the provided policy excerpts.\""
         )
     else:
-        style_instruction = (
-            "Explain the answer in clear, student-friendly language, "
-            "but base everything strictly on the context. "
-            "Do not invent policy rules that are not in the text."
-        )
+        if answer_style.lower().startswith("strict"):
+            style_instruction = (
+                "Answer ONLY using direct information from the context. "
+                "Quote or closely paraphrase relevant sentences. "
+                "If the answer is not present, say you cannot answer based on the provided policy text."
+            )
+        else:
+            style_instruction = (
+                "Explain the answer in clear, student-friendly language, "
+                "but base everything strictly on the context. "
+                "Do not invent policy rules that are not in the text."
+            )
 
     system_prompt = (
         "You are PolicyNavigator AI, an assistant that answers questions about university policies. "
@@ -335,9 +388,10 @@ def answer_question(
         f"Question:\n{question}\n\n"
         f"Below are policy excerpts retrieved as potentially relevant context:\n\n"
         f"{context_str}\n\n"
-        "Using ONLY the information above, answer the question. "
-        "If the text does not clearly answer it, say that the policy is unclear or not covered "
-        "and encourage the student to consult the official policy."
+        "Using ONLY the information above, answer the question.\n"
+        "If the text does not clearly answer it:\n"
+        '- In evaluation mode: reply exactly "Not covered in the provided policy excerpts."\n'
+        "- Otherwise: say the policy is unclear or not covered and encourage checking official policy."
     )
 
     # ------------------------------------------------------------------
@@ -388,6 +442,7 @@ if __name__ == "__main__":
         res = answer_question(
             "How does Northeastern define cheating in the academic integrity policy?",
             answer_style="Strict policy quote",
+            k=8,
         )
         print("\n[ANSWER]")
         print(res.get("answer"))
@@ -395,7 +450,7 @@ if __name__ == "__main__":
         for c in res.get("citations", []):
             print(
                 f"- {c.get('source')} | {c.get('chunk_id')} | "
-                f"rank={c.get('rank')} | sim={c.get('similarity'):.2f}"
+                f"page={c.get('page')} | rank={c.get('rank')} | sim={c.get('similarity'):.2f}"
             )
         print(
             "\n[HALLUCINATION]",

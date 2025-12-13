@@ -3,7 +3,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from dotenv import load_dotenv
 
@@ -14,11 +14,10 @@ if __name__ == "__main__":
 
 try:
     from ..main import answer_question
-    from .metrics import exact_match, token_f1, compute_aggregate_metrics, save_metrics_summary
+    from .metrics import compute_row_metrics, compute_aggregate_metrics, save_metrics_summary
 except ImportError:
-    # Fallback for when running directly
     from src.main import answer_question
-    from src.evaluation.metrics import exact_match, token_f1, compute_aggregate_metrics, save_metrics_summary
+    from src.evaluation.metrics import compute_row_metrics, compute_aggregate_metrics, save_metrics_summary
 
 load_dotenv()
 
@@ -40,6 +39,7 @@ def read_jsonl(path: str) -> List[Dict[str, Any]]:
 
 
 def write_jsonl(records: List[Dict[str, Any]], path: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         for r in records:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
@@ -49,10 +49,15 @@ def run_evaluation(
     data_path: str = DATA_PATH,
     results_path: str = RESULTS_PATH,
     summary_path: str = SUMMARY_PATH,
-    limit: int | None = None,
+    limit: Optional[int] = None,
+    k: int = 6,
+    rewrite_query: bool = True,
 ) -> None:
     """
     Evaluate the live system on the synthetic dataset.
+    Produces:
+      - detailed eval_results.jsonl (per-example)
+      - metrics_summary.json (aggregate)
     """
     dataset = read_jsonl(data_path)
     if limit is not None:
@@ -63,32 +68,52 @@ def run_evaluation(
     results: List[Dict[str, Any]] = []
 
     for idx, item in enumerate(dataset, start=1):
-        q = item["question"]
-        gold_answer = item["answer"]
+        q = item.get("question", "")
+        gold_answer = item.get("answer", "")
 
         print(f"[EVAL] ({idx}/{len(dataset)}) Q: {q[:80]}...")
 
         start = time.perf_counter()
-        model_out = answer_question(q, use_rewrite=True, top_k=5, collection_name="policies")
+        model_out = answer_question(q, rewrite_query=rewrite_query, k=8, eval_mode=True)
         end = time.perf_counter()
 
-        pred_answer = model_out.get("answer", "")
-        confidence = model_out.get("confidence", "unknown")
-        citations = model_out.get("citations", [])
+        pred_answer = (model_out.get("answer") or "").strip()
 
-        em = exact_match(gold_answer, pred_answer)
-        f1 = token_f1(gold_answer, pred_answer)
+        # IMPORTANT: main.py returns confidence_label / confidence_score
+        pred_conf_label = (model_out.get("confidence_label") or "unknown").lower()
+        pred_conf_score = float(model_out.get("confidence_score") or 0.0)
+
+        citations = model_out.get("citations", []) or []
+        used_query = model_out.get("used_query", "")
+
         latency_ms = (end - start) * 1000.0
+
+        retrieval_failed = len(citations) == 0
+        abstained = "couldn't find relevant information" in pred_answer.lower()
+
+        row_metrics = compute_row_metrics(
+            gold=gold_answer,
+            pred=pred_answer,
+            citations=citations,
+            retrieval_failed=retrieval_failed,
+            abstained=abstained,
+            confidence_label=pred_conf_label,
+        )
 
         result_record = {
             **item,
             "pred_answer": pred_answer,
-            "pred_confidence": confidence,
+            "pred_confidence_label": pred_conf_label,
+            "pred_confidence_score": pred_conf_score,
             "pred_citations": citations,
-            "is_exact_match": em,
-            "f1": f1,
+            "num_citations": len(citations),
+            "used_query": used_query,
             "latency_ms": latency_ms,
+            "retrieval_failed": retrieval_failed,
+            "abstained": abstained,
+            **row_metrics,
         }
+
         results.append(result_record)
 
     write_jsonl(results, results_path)

@@ -3,7 +3,7 @@ import os
 import sys
 import uuid
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from dotenv import load_dotenv
 
@@ -26,6 +26,10 @@ os.makedirs(DATA_DIR, exist_ok=True)
 DEFAULT_OUTPUT_PATH = os.path.join(DATA_DIR, "synthetic_qa.jsonl")
 
 
+# -----------------------------
+# Loading
+# -----------------------------
+
 def _load_doc(path: str) -> List[Dict[str, Any]]:
     ext = os.path.splitext(path)[1].lower()
     if ext == ".pdf":
@@ -38,63 +42,66 @@ def _load_doc(path: str) -> List[Dict[str, Any]]:
         raise ValueError(f"Unsupported file type for synthetic generation: {ext}")
 
 
+# -----------------------------
+# Prompting
+# -----------------------------
+
 def _build_qg_prompt(cleaned_text: str, source_name: str, num_questions: int) -> str:
     """
-    Prompt that asks the LLM to create Q&A pairs in JSON.
+    Generates EXTRACTIVE Q&A pairs.
+    Key improvement: gold answers are copied (verbatim) from policy text.
     """
     return f"""
-You are helping build an evaluation dataset for a university policy assistant.
+You are generating an evaluation dataset for a Retrieval-Augmented Generation (RAG) university policy assistant.
 
-Read the policy text below and create {num_questions} diverse question–answer pairs
-that a student might realistically ask. Vary the style and difficulty of questions.
+TASK:
+From the policy text below, create {num_questions} realistic student questions and EXTRACTIVE answers.
 
-Policy source: {source_name}
+CRITICAL RULES:
+- The "answer" MUST be a short extractive span copied VERBATIM from the policy text.
+- Maximum 25 words in "answer".
+- Also provide "evidence_quote" which is the exact same as "answer".
+- Provide "evidence_span" describing where you found it (e.g., "near paragraph about plagiarism" or "section heading if visible").
+- If the text does not contain a clear answer, DO NOT create that QA item.
 
-Return STRICTLY valid JSON ONLY, with no backticks, no explanations, and no text
-before or after it. The JSON must be a single array of objects with this exact schema:
+Return STRICTLY valid JSON ONLY (no backticks, no explanations), as a single JSON array of objects with this schema:
 
 [
   {{
-    "question": "...",
-    "answer": "...",
-    "section": "short section title or topic",
+    "question": "string",
+    "answer": "verbatim extract <= 25 words",
+    "evidence_quote": "same as answer",
+    "evidence_span": "where it was found (short)",
+    "section": "short topic label",
     "difficulty": "easy" | "medium" | "hard",
-    "q_type": "definition" | "deadline" | "procedure" | "exception" | "other"
+    "q_type": "definition" | "procedure" | "sanction" | "exception" | "other"
   }},
   ...
 ]
 
-If you cannot create the questions, return [].
+If you cannot create questions, return [].
+
+Policy source: {source_name}
 
 Policy text:
-\"\"\"{cleaned_text[:4000]}\"\"\"
+\"\"\"{cleaned_text}\"\"\"
 """.strip()
 
 
 def _extract_json_array(raw: str) -> str:
-    """
-    Try to extract the JSON array part from the model output.
-    Handles cases like: "Here is the JSON:\\n[ ... ]"
-    """
     raw = raw.strip()
-    # If it already starts with '[' just return
     if raw.startswith("["):
         return raw
 
     start = raw.find("[")
     end = raw.rfind("]")
-
     if start != -1 and end != -1 and end > start:
         return raw[start : end + 1]
 
-    # No brackets found
     raise ValueError("Could not find JSON array in model output.")
 
 
 def _parse_qas_from_raw(raw: str) -> List[Dict[str, Any]]:
-    """
-    Robust parsing: try to extract array, then json.loads.
-    """
     json_str = _extract_json_array(raw)
     parsed = json.loads(json_str)
     if not isinstance(parsed, list):
@@ -102,66 +109,136 @@ def _parse_qas_from_raw(raw: str) -> List[Dict[str, Any]]:
     return parsed
 
 
+# -----------------------------
+# Windowing / sampling
+# -----------------------------
+
+def _make_windows(text: str, window_chars: int = 4500, stride_chars: int = 3500) -> List[str]:
+    """
+    Instead of always using the same beginning of the doc, generate overlapping windows.
+    This increases coverage and improves dataset diversity.
+    """
+    text = (text or "").strip()
+    if not text:
+        return []
+
+    windows: List[str] = []
+    n = len(text)
+    start = 0
+    while start < n and len(windows) < 6:  # cap windows to control token/cost
+        end = min(start + window_chars, n)
+        win = text[start:end].strip()
+        if win:
+            windows.append(win)
+        start += stride_chars
+    return windows
+
+
+# -----------------------------
+# Core generation
+# -----------------------------
+
 def generate_qa_for_document(
     path: str,
     num_questions: int = 8,
-    client: LLMClient | None = None,
+    client: Optional[LLMClient] = None,
 ) -> List[Dict[str, Any]]:
+    """
+    Generates QAs by sampling multiple windows across the document/chunks.
+    Produces extractive answers for meaningful evaluation.
+    """
     if client is None:
         client = LLMClient()
 
     docs = _load_doc(path)
     all_qas: List[Dict[str, Any]] = []
 
+    # If loaders already split into pages/chunks, we still window each cleaned block
     for doc in docs:
-        cleaned = clean_text(doc["text"])
-        if not cleaned:
+        cleaned_full = clean_text(doc.get("text", ""))
+        if not cleaned_full:
             continue
 
-        prompt = _build_qg_prompt(cleaned, os.path.basename(path), num_questions)
-        raw = client.run(prompt)
+        windows = _make_windows(cleaned_full, window_chars=4500, stride_chars=3500)
+        if not windows:
+            continue
 
-        try:
-            parsed = _parse_qas_from_raw(raw)
-        except Exception as e:
-            # Debug print for you while developing
-            print(f"[WARN] Failed to parse JSON for {path}: {e}")
-            print("[DEBUG] First 400 chars of model output:")
-            print(raw[:400])
-            # Try a simple repair prompt once
-            repair_prompt = f"""
+        # Spread questions across windows rather than all in one place
+        # Example: if num_questions=12 and windows=3 -> 4 each
+        per_win = max(2, num_questions // max(len(windows), 1))
+
+        for w_i, win_text in enumerate(windows):
+            prompt = _build_qg_prompt(
+                win_text,
+                source_name=f"{os.path.basename(path)} (window {w_i+1}/{len(windows)})",
+                num_questions=per_win,
+            )
+
+            raw = client.run(prompt)
+
+            try:
+                parsed = _parse_qas_from_raw(raw)
+            except Exception as e:
+                print(f"[WARN] Failed to parse JSON for {path}: {e}")
+                print("[DEBUG] First 400 chars of model output:")
+                print(raw[:400])
+
+                repair_prompt = f"""
 You are given an invalid attempt at JSON for question–answer pairs.
+Fix it and return STRICTLY valid JSON array only.
 
-Fix it and return STRICTLY valid JSON array (no explanations, no backticks, no comments).
+Schema reminder:
+[
+  {{
+    "question": "...",
+    "answer": "...",
+    "evidence_quote": "...",
+    "evidence_span": "...",
+    "section": "...",
+    "difficulty": "easy|medium|hard",
+    "q_type": "definition|procedure|sanction|exception|other"
+  }}
+]
 
-Here is the text:
+Here is the invalid text:
 \"\"\"{raw.strip()[:4000]}\"\"\"
 """
-            repair_raw = client.run(repair_prompt)
-            try:
-                parsed = _parse_qas_from_raw(repair_raw)
-            except Exception as e2:
-                print(f"[WARN] Repair also failed for {path}: {e2}")
-                continue  # skip this chunk / doc
+                repair_raw = client.run(repair_prompt)
+                try:
+                    parsed = _parse_qas_from_raw(repair_raw)
+                except Exception as e2:
+                    print(f"[WARN] Repair also failed for {path}: {e2}")
+                    continue
 
-        for idx, item in enumerate(parsed):
-            qa_id = f"{os.path.basename(path)}_{idx}_{uuid.uuid4().hex[:8]}"
-            qa = {
-                "id": qa_id,
-                "question": item.get("question", "").strip(),
-                "answer": item.get("answer", "").strip(),
-                "source_doc": os.path.basename(path),
-                "section": item.get("section", "").strip() or "unknown",
-                "difficulty": item.get("difficulty", "medium"),
-                "q_type": item.get("q_type", "other"),
-            }
-            if qa["question"] and qa["answer"]:
+            for idx, item in enumerate(parsed):
+                q = (item.get("question", "") or "").strip()
+                a = (item.get("answer", "") or "").strip()
+
+                # Hard constraints: extractive + short
+                if not q or not a:
+                    continue
+                if len(a.split()) > 25:
+                    continue
+
+                qa_id = f"{os.path.basename(path)}_{w_i}_{idx}_{uuid.uuid4().hex[:8]}"
+                qa = {
+                    "id": qa_id,
+                    "question": q,
+                    "answer": a,
+                    "evidence_quote": (item.get("evidence_quote", "") or a).strip(),
+                    "evidence_span": (item.get("evidence_span", "") or "unknown").strip(),
+                    "source_doc": os.path.basename(path),
+                    "section": (item.get("section", "") or "unknown").strip(),
+                    "difficulty": (item.get("difficulty", "medium") or "medium").strip(),
+                    "q_type": (item.get("q_type", "other") or "other").strip(),
+                }
                 all_qas.append(qa)
 
     return all_qas
 
 
 def write_jsonl(records: List[Dict[str, Any]], path: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         for r in records:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
@@ -169,11 +246,12 @@ def write_jsonl(records: List[Dict[str, Any]], path: str) -> None:
 
 def generate_synthetic_dataset(
     kb_dir: str = os.path.join("data", "kb_raw"),
-    num_questions_per_doc: int = 8,
+    num_questions_per_doc: int = 24,
     output_path: str = DEFAULT_OUTPUT_PATH,
 ) -> str:
     """
     Iterate over all files in kb_dir and generate synthetic Q&A.
+    Recommended num_questions_per_doc: 20-40 for stable metrics.
     """
     if not os.path.isdir(kb_dir):
         raise FileNotFoundError(f"Knowledge base dir not found: {kb_dir}")
