@@ -60,7 +60,7 @@ It supports:
 - LLM Provider
 - Evaluation Pipeline
 
-![Architecture Diagram](High-Level Architecture.png)
+![Architecture Diagram](High-Level-Architecture.png)
 
 ### Low-Level Highlights
 - Adaptive MMR gating (disabled for small KBs)
@@ -187,9 +187,8 @@ This makes improvements measurable, not anecdotal.
 ---
 
 ## 👥 Project Contributors
-
-### - Ritwik Giri
-### - Akshaya Gavhane
+- Ritwik Giri
+- Akshaya Gavhane
 
 
 ⚖️ **Both contributors collaborated across frontend, backend, prompting, and evaluation to ensure the system was not only functional, but explainable, measurable, and reproducible.**
