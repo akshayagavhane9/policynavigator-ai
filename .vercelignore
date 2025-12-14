@@ -1,0 +1,9 @@
+data/
+kb_raw/
+**/*.pdf
+**/*.faiss
+**/*.sqlite
+**/*.pkl
+**/*.bin
+vectorstore/
+chroma/
