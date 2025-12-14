@@ -1,5 +1,5 @@
 {
-  "timestamp": "2025-12-13T20:43:04.675153+00:00",
+  "timestamp": "2025-12-14T01:08:23.655507+00:00",
   "questions": [
     "How does Northeastern define cheating in the academic integrity policy?",
     "What happens after an academic integrity violation is reported?",
@@ -9,16 +9,16 @@
   ],
   "baseline": {
     "n": 5.0,
-    "avg_max_similarity": 0.5944228708744049,
-    "avg_latency_ms": 2122.6,
+    "avg_max_similarity": 0.5944280385971069,
+    "avg_latency_ms": 2598.6,
     "hallucination_rate": 0.2,
-    "avg_citations_count": 1.8,
+    "avg_citations_count": 2.0,
     "evidence_ok_rate": 1.0
   },
   "improved": {
     "n": 5.0,
-    "avg_max_similarity": 0.584809947013855,
-    "avg_latency_ms": 1779.4,
+    "avg_max_similarity": 0.5848134338855744,
+    "avg_latency_ms": 2516.6,
     "hallucination_rate": 0.4,
     "avg_citations_count": 1.0,
     "evidence_ok_rate": 1.0

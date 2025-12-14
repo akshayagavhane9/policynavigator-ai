@@ -186,7 +186,7 @@ div[data-testid="stExpander"] .stMarkdown {
 
 st.sidebar.title("📚 Knowledge Base")
 st.sidebar.caption(
-    "Upload NEU policy documents (PDF, DOCX, TXT). They will ground answers and quizzes."
+    "Upload policy documents (PDF, DOCX, TXT). They will ground answers and quizzes."
 )
 
 uploaded_files = st.sidebar.file_uploader(
@@ -302,7 +302,7 @@ with tab_qa:
 
     user_question = st.text_input(
         "Your question",
-        placeholder="e.g., How does Northeastern define cheating in academic integrity policy?",
+        placeholder="e.g., what does this policy do?",
         label_visibility="collapsed",
     )
 
@@ -546,7 +546,7 @@ with tab_quiz:
                 "Base questions on common academic integrity and student conduct policies. "
                 + (f"Relevant files: {', '.join(kb_files)}." if kb_files else "")
             )
-            system_prompt = "You generate short multiple-choice quizzes about university policies."
+            system_prompt = "You generate short multiple-choice quizzes about  policies."
             user_prompt = f"""
 Generate {num_questions} multiple-choice quiz questions.
 
@@ -762,16 +762,16 @@ with tab_docs:
     st.subheader("About PolicyNavigator AI")
     st.markdown(
         """
-**PolicyNavigator AI** helps students understand complex university policies.
+**PolicyNavigator AI** helps students understand complex  policies.
 
 **Core features**
-- 📚 RAG grounded answers from uploaded NEU policy PDFs  
+- 📚 RAG grounded answers from uploaded policy PDFs  
 - 🧠 Prompt-engineered response styles (strict quote vs student-friendly)  
 - 🤔 What-if scenario explainer  
 - 📝 Quiz generator for learning  
 
 **Responsible use**
-- Always verify critical decisions using official NEU policy sources.
+- Always verify critical decisions using official policy sources.
 """
     )
     st.markdown("### Project Assets")

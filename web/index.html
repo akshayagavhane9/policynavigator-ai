@@ -60,8 +60,8 @@
 
           <!-- Make headline look like your reference screenshot by forcing a larger size here -->
           <h1 class="hero-title" style="font-size:64px; line-height:1.02; letter-spacing:-0.02em;">
-            Understand university<br />
-            policies <span class="hero-highlight">in plain</span><br />
+            Understand <br />
+            policies<span class="hero-highlight"> in plain</span><br />
             <span class="hero-highlight">English.</span>
           </h1>
 
@@ -291,7 +291,7 @@
         <p id="index-status" class="status-text"></p>
 
         <p class="demo-note" style="margin-top:10px;">
-          Note: Indexing requires FastAPI running at <code>http://127.0.0.1:8000</code> and this page served over <code>http://</code> (not <code>file://</code>).
+       
         </p>
       </div>
 
@@ -308,7 +308,7 @@
         <textarea
           id="question-input"
           class="input-textarea large"
-          placeholder="e.g., What is the policy on cheating in exams?"
+          placeholder="e.g., What is this policy about?"
         ></textarea>
 
         <div class="demo-controls">
@@ -440,8 +440,7 @@
       </div>
 
       <p class="demo-note">
-        Note: This demo expects your FastAPI backend to be running locally
-        (default: <code>http://127.0.0.1:8000</code>).
+       
       </p>
     </section>
 
@@ -579,7 +578,7 @@
               </div>
             </a>
 
-            <a class="card doc-card" href="docs/project_documentation.pdf">
+            <a class="card doc-card" href="docs/project_documentation.pdf" target="_blank" rel="noopener noreferrer">
               <div class="doc-icon">📑</div>
               <div>
                 <div class="doc-title">Technical Documentation</div>
@@ -595,11 +594,13 @@
               </div>
             </a>
 
-            <a class="card doc-card" href="#">
+            <a class="card doc-card" href="https://drive.google.com/file/d/19p0mJd6X-LtVWKXl-YT6B0tjewDmqusY/view?usp=sharing"
+            target="_blank"
+            rel="noopener noreferrer">
               <div class="doc-icon">🎥</div>
               <div>
                 <div class="doc-title">10-Minute Demo Video</div>
-                <div class="doc-sub">Link to be added</div>
+                <div class="doc-sub">Live system demo • Architecture • Results</div>
               </div>
             </a>
           </div>
@@ -973,7 +974,13 @@
         quizResult.textContent = "Failed to generate quiz. Ensure /api/quiz exists on the backend.";
       }
     });
-
+    document.getElementById("cta-walkthrough")?.addEventListener("click", () => {
+    window.open(
+      "https://drive.google.com/file/d/19p0mJd6X-LtVWKXl-YT6B0tjewDmqusY/view?usp=sharing",
+      "_blank",
+      "noopener,noreferrer"
+    );
+    });
     // ---- Metrics: load results/ab_eval_summary.json ----
     async function loadAbSummary() {
       const elF1 = document.getElementById("metric-f1");
