@@ -4,7 +4,7 @@ import json
 import re
 import base64
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List
 
 # Ensure project root is on sys.path so `src` imports work in Streamlit
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -13,12 +13,10 @@ if str(ROOT_DIR) not in sys.path:
 
 import streamlit as st
 import streamlit.components.v1 as components
+import pandas as pd
 
 from src.main import answer_question, ingest_and_index_documents  # type: ignore
 from src.llm.client import LLMClient  # type: ignore
-
-# --- NEW: for evaluation tab ---
-import pandas as pd
 
 
 # -------------------------------------------------------------------
@@ -53,7 +51,6 @@ def read_pdf_as_base64(pdf_path: str) -> str:
         return base64.b64encode(f.read()).decode("utf-8")
 
 
-# --- NEW: evaluation file helpers ---
 def _safe_read_text(path: str) -> str:
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
@@ -71,6 +68,16 @@ def _pct(n: float) -> str:
         return "—"
 
 
+def _dig(d: dict, *keys, default=None):
+    """Safely retrieve nested keys: _dig(summary, 'baseline', 'avg_max_sim')."""
+    cur = d
+    for k in keys:
+        if not isinstance(cur, dict) or k not in cur:
+            return default
+        cur = cur[k]
+    return cur
+
+
 # -------------------------------------------------------------------
 # Page config & Session state
 # -------------------------------------------------------------------
@@ -83,8 +90,6 @@ if "kb_indexed" not in st.session_state:
     st.session_state["kb_indexed"] = False
 if "quiz_items" not in st.session_state:
     st.session_state["quiz_items"] = None
-
-# Store last answer result
 if "last_answer" not in st.session_state:
     st.session_state["last_answer"] = None
 
@@ -185,9 +190,7 @@ div[data-testid="stExpander"] .stMarkdown {
 # -------------------------------------------------------------------
 
 st.sidebar.title("📚 Knowledge Base")
-st.sidebar.caption(
-    "Upload policy documents (PDF, DOCX, TXT). They will ground answers and quizzes."
-)
+st.sidebar.caption("Upload policy documents (PDF, DOCX, TXT). They will ground answers and quizzes.")
 
 uploaded_files = st.sidebar.file_uploader(
     "Upload files",
@@ -233,16 +236,6 @@ if st.sidebar.button("Index Documents", type="primary"):
         st.sidebar.error(f"Indexing failed: {e}")
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("🔗 Project Links")
-st.sidebar.markdown(
-    """
-- GitHub Repo: [PolicyNavigator AI](https://github.com/akshayagavhane9/policynavigator-ai)
-- Documentation (PDF): `docs/project_documentation.pdf`
-- Architecture Diagram: `docs/architecture_diagram.png`
-"""
-)
-
-st.sidebar.markdown("---")
 st.sidebar.subheader("💡 Example questions")
 st.sidebar.markdown(
     """
@@ -275,7 +268,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --- UPDATED: add evaluation tab ---
 tab_qa, tab_whatif, tab_quiz, tab_eval, tab_docs = st.tabs(
     ["💬 Q&A Assistant", "🤔 What-If Scenarios", "📝 Policy Quiz", "📈 Evaluation (A/B)", "📘 About & Docs"]
 )
@@ -302,7 +294,7 @@ with tab_qa:
 
     user_question = st.text_input(
         "Your question",
-        placeholder="e.g., what does this policy do?",
+        placeholder="e.g., How does this policy define cheating?",
         label_visibility="collapsed",
     )
 
@@ -319,16 +311,18 @@ with tab_qa:
                         k=k,
                     )
 
-                    # If student-friendly but abstained, show a helpful UX message
+                    # Student-friendly UX if abstained
                     if (
                         answer_style == "Explain my rights (student-friendly)"
                         and isinstance(res, dict)
                         and (res.get("answer") or "").strip() == "Not covered in the provided policy excerpts."
                     ):
                         res["answer"] = (
-                            "I couldn't find a clear clause in the uploaded policy excerpts that directly answers this. "
-                            "Try rephrasing with more specifics (assignment vs exam, collaboration, allowed resources), "
-                            "or upload the exact policy document that covers this topic."
+                            "I couldn’t find a clear clause in the uploaded excerpts that directly answers this.\n\n"
+                            "Try:\n"
+                            "- rephrasing with more specifics (exam vs assignment, collaboration rules, allowed resources)\n"
+                            "- uploading the policy that mentions this exact topic\n"
+                            "- asking a narrower question like: “What does the policy list as examples of cheating?”"
                         )
 
                     st.session_state["last_answer"] = res
@@ -339,9 +333,7 @@ with tab_qa:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Retrieve the last answer from session state
     res = st.session_state.get("last_answer")
-
     if res:
         col_left, col_right = st.columns([2, 1])
 
@@ -367,17 +359,9 @@ with tab_qa:
                 st.info(f"Hallucination risk: **{hallucination_risk}**")
 
             st.caption(f"Latency: {int(res.get('latency_ms', 0))} ms")
-
-            st.markdown("### ⭐ Feedback")
-            fb1, fb2 = st.columns(2)
-            with fb1:
-                st.button("👍 Helpful", key="fb_helpful")
-            with fb2:
-                st.button("👎 Not helpful", key="fb_not_helpful")
-
             st.markdown("</div>", unsafe_allow_html=True)
 
-        # Evidence section (clean)
+        # Evidence + PDF page preview
         st.markdown("<div class='pn-card'>", unsafe_allow_html=True)
         st.markdown("### 📎 Evidence & Citations (with PDF page preview)")
 
@@ -393,7 +377,6 @@ with tab_qa:
                 text = (c.get("text") or "").strip()
                 page = c.get("page", None)
 
-                # Clean header
                 page_label = f"page {page}" if page else "page ?"
                 header = f"{src} • {page_label} • rank {rank} • sim={sim:.2f}"
 
@@ -402,10 +385,9 @@ with tab_qa:
                     st.markdown(f"> {text[:1500]}" + ("..." if len(text) > 1500 else ""))
                     st.caption(f"Similarity: {sim:.2f}")
 
-                    # PDF Preview button only when source is a PDF and exists
+                    # PDF viewer (no CDN; embeds base64)
                     if str(src).lower().endswith(".pdf"):
                         pdf_path = kb_raw_path(src)
-
                         if os.path.exists(pdf_path):
                             if st.button(
                                 "📄 View PDF page",
@@ -414,7 +396,7 @@ with tab_qa:
                                 use_container_width=True,
                             ):
                                 st.markdown("---")
-                                st.markdown(f"### 📄 PDF Preview: {src} - Page {page}")
+                                st.markdown(f"### 📄 PDF Preview: {src} — Page {page}")
 
                                 try:
                                     pdf_b64 = read_pdf_as_base64(pdf_path)
@@ -445,10 +427,8 @@ with tab_qa:
                                         </div>
                                     </div>
                                     """
-
                                     components.html(pdf_html, height=900, scrolling=True)
 
-                                    # Download button
                                     pdf_bytes = base64.b64decode(pdf_b64)
                                     st.download_button(
                                         "⬇️ Download Full PDF",
@@ -457,13 +437,8 @@ with tab_qa:
                                         mime="application/pdf",
                                         type="primary",
                                     )
-
-                                    st.markdown("---")
-
                                 except Exception as e:
                                     st.error(f"Failed to load PDF: {e}")
-                            else:
-                                st.caption("Jumps to cited page • Transparent evidence preview (grader-friendly)")
                         else:
                             st.warning(f"PDF not found in `data/kb_raw`: {src}")
 
@@ -481,9 +456,8 @@ with tab_qa:
 with tab_whatif:
     st.markdown("<div class='pn-card'>", unsafe_allow_html=True)
     st.subheader("Explore What-If Scenarios")
-    st.write(
-        "Describe a hypothetical situation. The assistant will explain which policies are relevant and suggest next steps."
-    )
+    st.write("Describe a hypothetical situation. The assistant will explain which policies are relevant and suggest next steps.")
+
     scenario = st.text_area(
         "Scenario",
         height=140,
@@ -543,10 +517,10 @@ with tab_quiz:
         try:
             llm = LLMClient()
             scope = (
-                "Base questions on common academic integrity and student conduct policies. "
+                "Base questions on the uploaded policy documents. "
                 + (f"Relevant files: {', '.join(kb_files)}." if kb_files else "")
             )
-            system_prompt = "You generate short multiple-choice quizzes about  policies."
+            system_prompt = "You generate short multiple-choice quizzes about policies."
             user_prompt = f"""
 Generate {num_questions} multiple-choice quiz questions.
 
@@ -603,7 +577,7 @@ No extra text.
 
 
 # -------------------------------------------------------------------
-# Tab 4 – Evaluation (A/B)
+# Tab 4 – Evaluation (A/B) (ROBUST FIX)
 # -------------------------------------------------------------------
 
 with tab_eval:
@@ -625,99 +599,145 @@ with tab_eval:
         st.markdown("**Files detected**")
         st.write(f"• `{runs_csv}`: {'✅' if os.path.exists(runs_csv) else '❌'}")
         st.write(f"• `{summary_json}`: {'✅' if os.path.exists(summary_json) else '❌'}")
-
     with c2:
         st.markdown("**Quick instructions**")
         st.code("python scripts/ab_eval.py", language="bash")
 
-    if not (os.path.exists(runs_csv) and os.path.exists(summary_json)):
-        st.warning(
-            "Run the evaluation script first:\n"
-            "`python scripts/ab_eval.py`\n\n"
-            "Then refresh this page."
-        )
+    if not os.path.exists(runs_csv):
+        st.warning("Run: `python scripts/ab_eval.py` then refresh this page.")
         st.markdown("</div>", unsafe_allow_html=True)
     else:
-        # --- Load summary ---
-        try:
-            summary = json.loads(_safe_read_text(summary_json))
-        except Exception as e:
-            st.error(f"Failed to read summary JSON: {e}")
-            summary = {}
-
-        # --- Load runs CSV ---
+        # Load CSV
         try:
             df = pd.read_csv(runs_csv)
         except Exception as e:
             st.error(f"Failed to read runs CSV: {e}")
             df = pd.DataFrame()
 
-        # --- KPI cards ---
-        kpi_left, kpi_mid, kpi_right = st.columns(3)
+        # Load JSON (optional)
+        summary = {}
+        if os.path.exists(summary_json):
+            try:
+                summary = json.loads(_safe_read_text(summary_json))
+            except Exception as e:
+                st.warning(f"Could not parse summary JSON (will compute metrics from CSV): {e}")
 
-        # Safely extract common keys (works even if your JSON schema changes slightly)
-        num_q = summary.get("num_questions") or summary.get("n_questions") or summary.get("questions") or ""
-        baseline_hall_rate = summary.get("baseline_hallucination_rate")
-        improved_hall_rate = summary.get("improved_hallucination_rate")
-        baseline_avg_sim = summary.get("baseline_avg_max_sim")
-        improved_avg_sim = summary.get("improved_avg_max_sim")
+        # Try JSON keys (multiple schema)
+        baseline_avg_sim = (
+            summary.get("baseline_avg_max_sim")
+            or _dig(summary, "baseline", "avg_max_sim")
+            or _dig(summary, "baseline", "avg_sim")
+            or _dig(summary, "metrics", "baseline_avg_max_sim")
+        )
+        improved_avg_sim = (
+            summary.get("improved_avg_max_sim")
+            or _dig(summary, "improved", "avg_max_sim")
+            or _dig(summary, "improved", "avg_sim")
+            or _dig(summary, "metrics", "improved_avg_max_sim")
+        )
+        baseline_hall_rate = (
+            summary.get("baseline_hallucination_rate")
+            or _dig(summary, "baseline", "hallucination_rate")
+            or _dig(summary, "metrics", "baseline_hallucination_rate")
+        )
+        improved_hall_rate = (
+            summary.get("improved_hallucination_rate")
+            or _dig(summary, "improved", "hallucination_rate")
+            or _dig(summary, "metrics", "improved_hallucination_rate")
+        )
+
+        # Compute from CSV if needed
+        if not df.empty:
+            cols = set(df.columns)
+
+            if baseline_avg_sim is None:
+                for cand in ["baseline_max_sim", "baseline_sim", "max_sim_baseline"]:
+                    if cand in cols:
+                        baseline_avg_sim = float(df[cand].astype(float).mean())
+                        break
+            if improved_avg_sim is None:
+                for cand in ["improved_max_sim", "improved_sim", "max_sim_improved"]:
+                    if cand in cols:
+                        improved_avg_sim = float(df[cand].astype(float).mean())
+                        break
+
+            if baseline_hall_rate is None:
+                for cand in ["baseline_hallucination_flag", "baseline_hall", "hallucinated_baseline"]:
+                    if cand in cols:
+                        baseline_hall_rate = float(df[cand].astype(bool).mean())
+                        break
+            if improved_hall_rate is None:
+                for cand in ["improved_hallucination_flag", "improved_hall", "hallucinated_improved"]:
+                    if cand in cols:
+                        improved_hall_rate = float(df[cand].astype(bool).mean())
+                        break
+
+        num_questions = int(len(df)) if not df.empty else 0
+
+        kpi_left, kpi_mid, kpi_right = st.columns(3)
 
         with kpi_left:
             st.markdown("### ✅ Coverage")
-            st.markdown(f"<div class='pn-badge'>Questions: {num_q if num_q != '' else '—'}</div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div class='pn-badge'>Questions evaluated: {num_questions if num_questions else '—'}</div>",
+                unsafe_allow_html=True,
+            )
 
         with kpi_mid:
             st.markdown("### 🧠 Max Similarity (Avg)")
             st.markdown(
-                f"<div class='pn-badge'>Baseline: {baseline_avg_sim if baseline_avg_sim is not None else '—'}</div>",
+                f"<div class='pn-badge'>Baseline: {float(baseline_avg_sim):.3f}</div>"
+                if baseline_avg_sim is not None
+                else "<div class='pn-badge'>Baseline: —</div>",
                 unsafe_allow_html=True,
             )
             st.markdown(
-                f"<div class='pn-badge'>Improved: {improved_avg_sim if improved_avg_sim is not None else '—'}</div>",
+                f"<div class='pn-badge'>Improved: {float(improved_avg_sim):.3f}</div>"
+                if improved_avg_sim is not None
+                else "<div class='pn-badge'>Improved: —</div>",
                 unsafe_allow_html=True,
             )
 
         with kpi_right:
             st.markdown("### ⚠ Hallucination Rate")
             st.markdown(
-                f"<div class='pn-badge'>Baseline: {_pct(baseline_hall_rate) if baseline_hall_rate is not None else '—'}</div>",
+                f"<div class='pn-badge'>Baseline: {_pct(baseline_hall_rate)}</div>"
+                if baseline_hall_rate is not None
+                else "<div class='pn-badge'>Baseline: —</div>",
                 unsafe_allow_html=True,
             )
             st.markdown(
-                f"<div class='pn-badge'>Improved: {_pct(improved_hall_rate) if improved_hall_rate is not None else '—'}</div>",
+                f"<div class='pn-badge'>Improved: {_pct(improved_hall_rate)}</div>"
+                if improved_hall_rate is not None
+                else "<div class='pn-badge'>Improved: —</div>",
                 unsafe_allow_html=True,
             )
 
         st.markdown("---")
 
-        # --- Show summary JSON (collapsible) ---
-        with st.expander("View summary JSON"):
-            st.json(summary)
+        with st.expander("Debug: detected CSV columns + summary JSON"):
+            if not df.empty:
+                st.write("CSV columns:", sorted(list(df.columns)))
+            st.json(summary if summary else {"note": "No summary JSON parsed. Metrics derived from CSV."})
 
-        # --- Runs table ---
         st.markdown("### 📄 Detailed Run Log")
         if df.empty:
             st.warning("Runs CSV is empty or unreadable.")
         else:
             st.dataframe(df, use_container_width=True, hide_index=True)
 
-        # --- Charts ---
         if not df.empty:
-            # try to standardize expected column names
-            # (Your script likely writes baseline_max_sim / improved_max_sim etc.)
             cols = set(df.columns)
-
             st.markdown("### 📈 Charts")
             chart_c1, chart_c2 = st.columns(2)
 
             with chart_c1:
                 st.markdown("**Max similarity by question**")
-                if {"baseline_max_sim", "improved_max_sim"}.issubset(cols):
-                    chart_df = df[["question", "baseline_max_sim", "improved_max_sim"]].copy()
-                    chart_df = chart_df.set_index("question")
+                if {"question", "baseline_max_sim", "improved_max_sim"}.issubset(cols):
+                    chart_df = df[["question", "baseline_max_sim", "improved_max_sim"]].copy().set_index("question")
                     st.line_chart(chart_df)
                 else:
-                    st.info("Expected columns not found: baseline_max_sim, improved_max_sim")
+                    st.info("Chart needs columns: question, baseline_max_sim, improved_max_sim")
 
             with chart_c2:
                 st.markdown("**Hallucination flags (count)**")
@@ -727,11 +747,9 @@ with tab_eval:
                     bar_df = pd.DataFrame({"count": [b, i]}, index=["baseline", "improved"])
                     st.bar_chart(bar_df)
                 else:
-                    st.info("Expected columns not found: baseline_hallucination_flag, improved_hallucination_flag")
+                    st.info("Chart needs columns: baseline_hallucination_flag, improved_hallucination_flag")
 
         st.markdown("---")
-
-        # --- Download buttons ---
         dl1, dl2 = st.columns(2)
         with dl1:
             st.download_button(
@@ -742,13 +760,14 @@ with tab_eval:
                 type="primary",
             )
         with dl2:
-            st.download_button(
-                "⬇️ Download ab_eval_summary.json",
-                data=_safe_read_bytes(summary_json),
-                file_name="ab_eval_summary.json",
-                mime="application/json",
-                type="primary",
-            )
+            if os.path.exists(summary_json):
+                st.download_button(
+                    "⬇️ Download ab_eval_summary.json",
+                    data=_safe_read_bytes(summary_json),
+                    file_name="ab_eval_summary.json",
+                    mime="application/json",
+                    type="primary",
+                )
 
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -762,7 +781,7 @@ with tab_docs:
     st.subheader("About PolicyNavigator AI")
     st.markdown(
         """
-**PolicyNavigator AI** helps students understand complex  policies.
+**PolicyNavigator AI** helps users understand complex policies (not limited to university policies).
 
 **Core features**
 - 📚 RAG grounded answers from uploaded policy PDFs  
@@ -772,14 +791,6 @@ with tab_docs:
 
 **Responsible use**
 - Always verify critical decisions using official policy sources.
-"""
-    )
-    st.markdown("### Project Assets")
-    st.markdown(
-        """
-- GitHub: `https://github.com/akshayagavhane9/policynavigator-ai`  
-- Documentation: `docs/project_documentation.pdf`  
-- Architecture: `docs/architecture_diagram.png`  
 """
     )
     st.markdown("</div>", unsafe_allow_html=True)
