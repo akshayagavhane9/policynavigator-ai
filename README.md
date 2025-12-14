@@ -164,7 +164,20 @@ Results will be saved in:
 results/ab_eval_runs.csv
 results/ab_eval_summary.json
 ```
+### 7️⃣ Run PolicyNavigatorAI Web Interface
 
+To run the web page of PolicyNavigatorAI, you need to start both the backend and frontend servers:
+
+**Run the backend (to handle data):**
+```bash
+uvicorn src.api.server:app --reload --port 8000
+```
+
+**Run the frontend (in a new terminal):**
+```bash
+python -m http.server 5500
+```
+Then navigate to `http://localhost:5500` in your web browser.
 ---
 
 ## 📊 Evaluation Methodology
